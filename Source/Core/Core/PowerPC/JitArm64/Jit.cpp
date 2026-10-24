@@ -1286,6 +1286,8 @@ bool JitArm64::HandleFunctionHooking(u32 address)
   const auto result = HLE::TryReplaceFunction(m_ppc_symbol_db, address, PowerPC::CoreMode::JIT);
   if (!result)
     return false;
+  if (!HLE::STVHookValido(m_system, result.hook_index))  // STV_GC_SKINHLE_v1
+    return false;
 
   HLEFunction(result.hook_index);
 

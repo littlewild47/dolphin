@@ -14,6 +14,9 @@
 #include "Core/GeckoCode.h"
 #include "Core/HLE/HLE_Misc.h"
 #include "Core/HLE/HLE_OS.h"
+#include "Core/HLE/HLE_STV.h"
+#include "Core/ConfigManager.h"
+#include <sys/system_properties.h>
 #include "Core/HW/Memmap.h"
 #include "Core/Host.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
@@ -26,7 +29,7 @@ namespace HLE
 static std::map<u32, u32> s_hooked_addresses;
 
 // clang-format off
-constexpr std::array<Hook, 23> os_patches{{
+constexpr std::array<Hook, 25> os_patches{{
     // Placeholder, os_patches[0] is the "non-existent function" index
     {"FAKE_TO_SKIP_0",               HLE_Misc::UnimplementedFunction,       HookType::Replace, HookFlag::Generic},
 
@@ -58,7 +61,10 @@ constexpr std::array<Hook, 23> os_patches{{
 
     {"GeckoCodehandler",             HLE_Misc::GeckoCodeHandlerICacheFlush, HookType::Start,   HookFlag::Fixed},
     {"GeckoHandlerReturnTrampoline", HLE_Misc::GeckoReturnTrampoline,       HookType::Replace, HookFlag::Fixed},
-    {"AppLoaderReport",              HLE_OS::HLE_GeneralDebugPrint,         HookType::Start,   HookFlag::Fixed} // apploader needs OSReport-like function
+    {"AppLoaderReport",              HLE_OS::HLE_GeneralDebugPrint,         HookType::Start,   HookFlag::Fixed}, // apploader needs OSReport-like function
+    // STV_GC_SKINHLE_v1: Simpsons Hit & Run (GHQE7D), skinning por CPU; firma verificada al compilar
+    {"STVSkinGHQ",                   HLE_STV::SkinReemplazo,                HookType::Replace, HookFlag::Fixed},
+    {"STVSkinGHQControl",            HLE_STV::SkinControl,                  HookType::Start,   HookFlag::Fixed}
 }};
 // clang-format on
 
@@ -104,6 +110,28 @@ void PatchFixedFunctions(Core::System& system)
   // This has to always be installed even if cheats are not enabled because of the possibility of
   // loading a savestate where PC is inside the code handler while cheats are disabled.
   Patch(system, Gecko::HLE_TRAMPOLINE_ADDRESS, "GeckoHandlerReturnTrampoline");
+
+  // STV_GC_SKINHLE_v1: debug.stv.gc.skin = 0|1|2 (2 = control) pisa [Core] STVSkinHLE; solo en GHQE7D.
+  if (SConfig::GetInstance().GetGameID() == "GHQE7D")
+  {
+    int modo = Config::Get(Config::MAIN_STV_SKIN_HLE) ? 1 : 0;
+    char v[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.skin", v) > 0 && v[0] >= '0' && v[0] <= '2')
+      modo = v[0] - '0';
+    if (modo == 1)
+      Patch(system, HLE_STV::SKIN_DIR, "STVSkinGHQ");
+    else if (modo == 2)
+      Patch(system, HLE_STV::SKIN_DIR, "STVSkinGHQControl");
+  }
+}
+
+// STV_GC_SKINHLE_v1: el reemplazo solo se compila si el codigo del juego es el esperado.
+bool STVHookValido(Core::System& system, u32 hook_index)
+{
+  const std::string_view n = os_patches[hook_index & 0xFFFFF].name;
+  if (n == "STVSkinGHQ" || n == "STVSkinGHQControl")
+    return HLE_STV::FirmaSkinOK(system);
+  return true;
 }
 
 void PatchFunctions(Core::System& system)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "Core/HW/GPFifo.h"
+#include "Core/HLE/HLE_STV.h"
 
 #include <cstddef>
 #include <cstring>
@@ -171,6 +172,13 @@ void GPFifoManager::STVAnotar()
 
 void GPFifoManager::Write8(const u8 value)
 {
+  if (HLE_STV::g_skin_control_activo)  // STV_GC_SKINHLE_v1 (control): bytes en orden del FIFO (big endian)
+  {
+    u8 b[sizeof(u8)];
+    for (size_t i = 0; i < sizeof(u8); i++)
+      b[i] = static_cast<u8>(static_cast<u64>(value) >> (8 * (sizeof(u8) - 1 - i)));
+    HLE_STV::ControlComparar(b, sizeof(u8));
+  }
   FastWrite8(value);
   STVAnotar();
   CheckGatherPipe();
@@ -178,6 +186,13 @@ void GPFifoManager::Write8(const u8 value)
 
 void GPFifoManager::Write16(const u16 value)
 {
+  if (HLE_STV::g_skin_control_activo)  // STV_GC_SKINHLE_v1 (control): bytes en orden del FIFO (big endian)
+  {
+    u8 b[sizeof(u16)];
+    for (size_t i = 0; i < sizeof(u16); i++)
+      b[i] = static_cast<u8>(static_cast<u64>(value) >> (8 * (sizeof(u16) - 1 - i)));
+    HLE_STV::ControlComparar(b, sizeof(u16));
+  }
   FastWrite16(value);
   STVAnotar();
   CheckGatherPipe();
@@ -185,6 +200,13 @@ void GPFifoManager::Write16(const u16 value)
 
 void GPFifoManager::Write32(const u32 value)
 {
+  if (HLE_STV::g_skin_control_activo)  // STV_GC_SKINHLE_v1 (control): bytes en orden del FIFO (big endian)
+  {
+    u8 b[sizeof(u32)];
+    for (size_t i = 0; i < sizeof(u32); i++)
+      b[i] = static_cast<u8>(static_cast<u64>(value) >> (8 * (sizeof(u32) - 1 - i)));
+    HLE_STV::ControlComparar(b, sizeof(u32));
+  }
   FastWrite32(value);
   STVAnotar();
   CheckGatherPipe();
@@ -192,6 +214,13 @@ void GPFifoManager::Write32(const u32 value)
 
 void GPFifoManager::Write64(const u64 value)
 {
+  if (HLE_STV::g_skin_control_activo)  // STV_GC_SKINHLE_v1 (control): bytes en orden del FIFO (big endian)
+  {
+    u8 b[sizeof(u64)];
+    for (size_t i = 0; i < sizeof(u64); i++)
+      b[i] = static_cast<u8>(static_cast<u64>(value) >> (8 * (sizeof(u64) - 1 - i)));
+    HLE_STV::ControlComparar(b, sizeof(u64));
+  }
   FastWrite64(value);
   STVAnotar();
   CheckGatherPipe();

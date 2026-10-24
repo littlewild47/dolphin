@@ -24,6 +24,8 @@
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
+#include "Core/HLE/HLE.h"
+#include "Core/HLE/HLE_STV.h"
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -508,6 +510,39 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "vi: eventos=%llu/s lazo=%d",
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
+      ve0 = ve;
+    }
+    // STV_GC_SKINHLE_v1: con las metricas, llamadas y vertices del reemplazo y, en el modo control, bytes comparados.
+    // Si debug.stv.gc.skin cambia con el juego andando, se reenganchan los HLE y se vacia la cache del JIT (A/B en la
+    // misma sesion).
+    {
+      char sk[PROP_VALUE_MAX] = {};
+      static std::string stv_sk_prev = "-";
+      __system_property_get("debug.stv.gc.skin", sk);
+      if (stv_sk_prev == "-")
+        stv_sk_prev = sk;
+      else if (stv_sk_prev != sk)
+      {
+        stv_sk_prev = sk;
+        auto& system = Core::System::GetInstance();
+        const Core::CPUThreadGuard guard(system);
+        HLE::Reload(system);
+        system.GetJitInterface().ClearCache(guard);
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "skin: modo=%s (HLE recargado, JIT vaciado)", sk);
+      }
+    }
+    {
+      static u32 ll0 = 0, ve0 = 0;
+      const u32 ll = HLE_STV::g_skin_llamadas.load(), ve = HLE_STV::g_skin_vertices.load();
+      char mv[PROP_VALUE_MAX] = {};
+      if (ll != ll0 && __system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "skin: llamadas=%u/s vertices=%u/s comparados=%u difieren=%u primera_dif=%u gqr4=%08x "
+                            "gqr7=%08x directas=%u",
+                            ll - ll0, ve - ve0, HLE_STV::g_skin_comparados.load(), HLE_STV::g_skin_difieren.load(),
+                            HLE_STV::g_skin_primera_dif.load(), HLE_STV::g_skin_gqr4.load(),
+                            HLE_STV::g_skin_gqr7.load(), HLE_STV::g_skin_directas.load());
+      ll0 = ll;
       ve0 = ve;
     }
     // STV_GC_EFBASYNC_v1: debug.stv.gc.efbasync = 0|1 pisa [Core] STVEfbAsync. Con las metricas, una linea por segundo
