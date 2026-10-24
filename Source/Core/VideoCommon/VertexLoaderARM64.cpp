@@ -3,6 +3,11 @@
 
 #include "VideoCommon/VertexLoaderARM64.h"
 
+#include <algorithm>
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 #include <array>
 
 #include "Common/CommonTypes.h"
@@ -23,6 +28,22 @@ constexpr ARM64Reg saved_count = ARM64Reg::W12;
 constexpr ARM64Reg stride_reg = ARM64Reg::X11;
 constexpr ARM64Reg arraybase_reg = ARM64Reg::X10;
 constexpr ARM64Reg scale_reg = ARM64Reg::X9;
+// STV_GC_VLPREF_x: base del vertice D posiciones adelante (o el actual en los ultimos D) y dos temporales para el
+// prefetch de los datos indexados (X3-X4 son argumentos que el cargador no usa; X13 tampoco se usaba).
+constexpr ARM64Reg pf_src_reg = ARM64Reg::X13;
+constexpr ARM64Reg pf1_reg = ARM64Reg::W3;
+constexpr ARM64Reg pf2_reg = ARM64Reg::W4;
+// STV_GC_VLPREF_v1: D = 8 vertices de adelanto (Simpsons en el auto, ABBA: ~+2,5 %; D = 4 no pagaba).
+// debug.stv.gc.vlpref = D lo pisa (0 = como Dolphin). Se lee al generar cada cargador.
+static int StvVlPref()
+{
+#ifdef __ANDROID__
+  char v[PROP_VALUE_MAX] = {};
+  if (__system_property_get("debug.stv.gc.vlpref", v) > 0)
+    return std::clamp(atoi(v), 0, 16);
+#endif
+  return 8;
+}
 
 static constexpr int GetLoadSize(int load_bytes)
 {
@@ -90,8 +111,25 @@ std::pair<Arm64Gen::ARM64Reg, u32> VertexLoaderARM64::GetVertexAddr(CPArray arra
     LDR(IndexType::Unsigned, scratch2_reg, stride_reg, static_cast<u8>(array) * 4);
     MUL(scratch1_reg, scratch1_reg, scratch2_reg);
 
+    // STV_GC_VLPREF_x: pedir ya el dato del mismo atributo del vertice D posiciones adelante (el indice se lee de la
+    // lista, que va en orden). PRFM no falla aunque la direccion sea invalida (indice 0xFFFF de posicion salteada).
+    if (m_stv_pref)
+    {
+      const u32 ofs_idx = m_src_ofs - (attribute == VertexComponentFormat::Index8 ? 1 : 2);
+      if (attribute == VertexComponentFormat::Index8)
+        LDURB(pf1_reg, pf_src_reg, ofs_idx);
+      else
+      {
+        LDURH(pf1_reg, pf_src_reg, ofs_idx);
+        REV16(pf1_reg, pf1_reg);
+      }
+      MUL(pf1_reg, pf1_reg, scratch2_reg);
+    }
+
     LDR(IndexType::Unsigned, EncodeRegTo64(scratch2_reg), arraybase_reg,
         static_cast<u8>(array) * 8);
+    if (m_stv_pref)
+      PRFM(ARM64Reg::PLDL1KEEP, EncodeRegTo64(scratch2_reg), ArithOption(EncodeRegTo64(pf1_reg)));
     ADD(EncodeRegTo64(scratch1_reg), EncodeRegTo64(scratch1_reg), EncodeRegTo64(scratch2_reg));
     return {EncodeRegTo64(scratch1_reg), 0};
   }
@@ -358,7 +396,23 @@ void VertexLoaderARM64::GenerateVertexLoader()
   if (need_scale)
     MOVP2R(scale_reg, scale_factors);
 
+  // STV_GC_VLPREF_x
+  const int stv_d = StvVlPref();
+  m_stv_pref = stv_d > 0 && (IsIndexed(m_VtxDesc.low.Position) || IsIndexed(m_VtxDesc.low.Normal) ||
+                             IsIndexed(m_VtxDesc.low.Color[0]) || IsIndexed(m_VtxDesc.low.Color[1]) ||
+                             IsIndexed(m_VtxDesc.high.TexCoord[0]) || IsIndexed(m_VtxDesc.high.TexCoord[1]));
+  for (size_t i = 2; i < m_VtxDesc.high.TexCoord.Size(); i++)
+    m_stv_pref = m_stv_pref || (stv_d > 0 && IsIndexed(m_VtxDesc.high.TexCoord[i]));
+
   const u8* loop_start = GetCodePtr();
+
+  if (m_stv_pref)
+  {
+    // pf_src = vertice actual + D si quedan al menos D detras de este; si no, el actual (no leer fuera de la lista)
+    CMP(remaining_reg, stv_d);
+    ADD(pf_src_reg, src_reg, static_cast<u32>(stv_d * m_vertex_size));
+    CSEL(pf_src_reg, pf_src_reg, src_reg, CCFlags::CC_GE);
+  }
 
   if (m_VtxDesc.low.PosMatIdx)
   {

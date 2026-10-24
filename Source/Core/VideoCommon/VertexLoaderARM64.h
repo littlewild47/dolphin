@@ -24,6 +24,7 @@ protected:
 
 private:
   u32 m_src_ofs = 0;
+  bool m_stv_pref = false;  // STV_GC_VLPREF_x
   u32 m_dst_ofs = 0;
   Arm64Gen::FixupBranch m_skip_vertex;
   Arm64Gen::ARM64FloatEmitter m_float_emit;

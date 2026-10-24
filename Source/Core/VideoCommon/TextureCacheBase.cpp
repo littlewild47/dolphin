@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <chrono>
+#if defined(_M_ARM_64)
+#include <arm_neon.h>
+#endif
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -2767,6 +2770,8 @@ void TextureCacheBase::UninitializeEFBMemory(u8* dst, u32 stride, u32 bytes_per_
   }
 }
 
+bool g_stv_xfbrapido = true;  // STV_GC_XFBRAPIDO_x (lo pisa PerformanceMetrics con debug.stv.gc.xfbrapido)
+
 void TextureCacheBase::UninitializeXFBMemory(u8* dst, u32 stride, u32 bytes_per_row,
                                              u32 num_blocks_y)
 {
@@ -2792,6 +2797,19 @@ void TextureCacheBase::UninitializeXFBMemory(u8* dst, u32 stride, u32 bytes_per_
       _mm_storeu_si128((__m128i*)rowdst, sixteenBytes);
       size -= 16;
       rowdst += 16;
+    }
+#elif defined(_M_ARM_64)
+    // STV_GC_XFBRAPIDO_x: el mismo patron (01 FE) de a 16 bytes con NEON; antes, byte por byte con una rama por byte
+    // (~600 KB por cuadro en el hilo de video). debug.stv.gc.xfbrapido=0 vuelve al lazo de Dolphin.
+    if (g_stv_xfbrapido)
+    {
+      const uint8x16_t patron = vreinterpretq_u8_u16(vdupq_n_u16(0xFE01));
+      while (size >= 16)
+      {
+        vst1q_u8(rowdst, patron);
+        size -= 16;
+        rowdst += 16;
+      }
     }
 #endif
     for (u32 offset = 0; offset < size; offset++)
