@@ -26,6 +26,11 @@
 namespace Vulkan::Grabador
 {
 bool g_limpieza = false;
+// STV_GC_GRABGIRO_v1: vueltas cortas (yield) antes de dormir sin trabajo. Con 1500 el grabador dormia ~7 mil veces por
+// segundo y el hilo de video pagaba un futex por cada despertar (5,5 % de su tiempo). 20000 por defecto (Simpsons en el
+// auto +5 %; TP igual); [Core] STVGrabGiro por juego (Simpsons USA: 200000, otro +2,9 %; en TP 200000 costaba -2,4 %:
+// el grabador ocupa 61 % de un nucleo). debug.stv.gc.grabgiro lo pisa (PerformanceMetrics, una vez por segundo).
+std::atomic<int> g_giro{20000};
 
 namespace
 {
@@ -104,7 +109,8 @@ void Hilo()
     {
       // Sin trabajo: unas vueltas cortas (el hilo de video publica en rafagas) y despues dormir.
       bool hay = false;
-      for (int i = 0; i < 1500 && !hay; i++)
+      const int giro = g_giro.load(std::memory_order_relaxed);
+      for (int i = 0; i < giro && !hay; i++)
       {
         Ceder();
         hay = s_w.load(std::memory_order_acquire) != r;

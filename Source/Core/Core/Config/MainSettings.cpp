@@ -69,6 +69,8 @@ const Info<bool> MAIN_STV_AFINIDAD{{System::Main, "Core", "STVAfinidad"}, true};
 const Info<bool> MAIN_STV_EFB_ASYNC{{System::Main, "Core", "STVEfbAsync"}, false};
 // STV_GC_SKINHLE_v1: ver HLE/HLE_STV.cpp (reemplazos nativos por juego). Por juego.
 const Info<bool> MAIN_STV_SKIN_HLE{{System::Main, "Core", "STVSkinHLE"}, false};
+// STV_GC_GRABGIRO_v1: ver VideoBackends/Vulkan/VKGrabador.cpp. Por juego.
+const Info<int> MAIN_STV_GRAB_GIRO{{System::Main, "Core", "STVGrabGiro"}, 20000};
 // STV_GC_FIFORUT_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO desde las rutinas cuantizadas).
 const Info<bool> MAIN_STV_FIFO_RUT{{System::Main, "Core", "STVFifoRutina"}, true};
 // STV_GC_GQR_v1: ver JitArm64_LoadStorePaired.cpp (psq_l con el GQR constante en el bloque, en linea).
