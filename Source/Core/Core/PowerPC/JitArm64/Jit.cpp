@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -83,6 +84,7 @@ void JitArm64::Init()
   fpr.Init(this);
   // STV_GC_JITGF_v1: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
   gpr.STVGfConfigurar(STVGf());
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
   blocks.Init();
 
   code_block.m_stats = &js.st;
@@ -183,6 +185,7 @@ void JitArm64::ClearCache()
   RefreshConfig();
   // STV_GC_JITGF_v1: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
   gpr.STVGfConfigurar(STVGf());
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
 
   GenerateAsmAndResetFreeMemoryRanges();
 }
@@ -388,6 +391,220 @@ void JitArm64::DoDownCount()
   STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
 }
 
+// STV_GC_ICCUENTA_x (instrumento, bit 512 con el 128): por sitio de bcctr, llamadas, destinos distintos y aciertos que
+// tendria una cache en linea de 1 y de 2 destinos (LRU). Lo escribe el CPU y lo vuelca el hilo de metricas: mutex.
+namespace
+{
+struct STVICSitio
+{
+  u64 n = 0, h1 = 0, h2 = 0;
+  u32 a = 0, b = 0;
+  std::vector<u32> dist;
+};
+std::mutex s_stv_ic_mutex;
+std::unordered_map<u32, STVICSitio> s_stv_ic;
+}  // namespace
+
+void STVICRegistrar(u32 sitio, u32 destino)
+{
+  std::lock_guard lk(s_stv_ic_mutex);
+  STVICSitio& e = s_stv_ic[sitio];
+  ++e.n;
+  if (e.a == destino)
+  {
+    ++e.h1;
+    ++e.h2;
+  }
+  else
+  {
+    if (e.b == destino)
+      ++e.h2;
+    e.b = e.a;
+    e.a = destino;
+  }
+  if (e.dist.size() < 64 && std::ranges::find(e.dist, destino) == e.dist.end())
+    e.dist.push_back(destino);
+}
+
+void STVICVolcar(const char* ruta)
+{
+  std::lock_guard lk(s_stv_ic_mutex);
+  if (std::FILE* f = std::fopen(ruta, "w"))
+  {
+    for (const auto& [sitio, e] : s_stv_ic)
+      std::fprintf(f, "%08x\t%llu\t%zu\t%llu\t%llu\n", sitio, (unsigned long long)e.n, e.dist.size(),
+                   (unsigned long long)e.h1, (unsigned long long)e.h2);
+    std::fclose(f);
+  }
+  s_stv_ic.clear();
+}
+
+// STV_GC_IC_x (bit 1024 con el 128): cache en linea de bcctr con aprendizaje. Un sitio sin decision llama a
+// STVICAprender en cada ejecucion; con 16 destinos iguales seguidos queda ADIVINADO (el bloque se recompila con el destino
+// como constante: si coincide, salida enlazada normal; si no, el despachador), con 256 llamadas sin eso queda MEGA (se
+// recompila sin aprender). Al decidir se invalida el bloque del sitio y devuelve 1: ese camino descarta la pila de BLR y
+// sale sin empujar marco (un retorno a un bloque destruido caeria en codigo liberado). Solo el hilo de CPU: sin mutex.
+std::unordered_map<u32, STVICSitioJit> g_stv_ic_sitios;
+
+u32 STVICAprender(u32 sitio, u32 destino)
+{
+  STVICSitioJit& e = g_stv_ic_sitios[sitio];
+  if (e.estado != 0)
+    return 0;
+  ++e.llamadas;
+  if (destino == e.destino)
+  {
+    ++e.racha;
+  }
+  else
+  {
+    e.destino = destino;
+    e.racha = 1;
+  }
+  if (e.racha >= 16)
+    e.estado = 1;
+  else if (e.llamadas >= 256)
+    e.estado = 2;
+  else
+    return 0;
+  Core::System::GetInstance().GetJitInterface().InvalidateICache(sitio, 4, true);
+  return 1;
+}
+
+// STV_GC_BASE_x: decide si el acceso [rA + off] va por X25 y, si hace falta, carga la base. Devuelve true si se usa.
+bool JitArm64::STVBasePreparar(int guest, ARM64Reg host, s32 off, u32 bytes, bool update)
+{
+  if (!(m_stv_volatil & 16384) || update || !jo.fastmem || jo.memcheck || guest < 0)
+    return false;
+  if (js.fifoWriteAddresses.contains(js.compilerPC))
+    return false;
+  const bool sin_escala = off >= -256 && off <= 255;
+  const bool escalado = off >= 0 && (off % bytes) == 0 && (off / bytes) <= 4095;
+  if (!sin_escala && !escalado)
+    return false;
+  const int ranuras = (m_stv_volatil & 65536) ? 2 : 1;
+  int r = -1;
+  for (int k = 0; k < ranuras; k++)
+  {
+    if (m_stv_base_guest[k] == guest)
+      r = k;
+  }
+  if (r < 0)
+  {
+    r = ranuras == 2 ? static_cast<int>(1 - m_stv_base_lru) : 0;
+    const ARM64Reg x = r == 0 ? ARM64Reg::X25 : ARM64Reg::X26;
+    ADD(x, MEM_REG, host, ArithOption(host, ExtendSpecifier::UXTW));
+    m_stv_base_guest[r] = guest;
+  }
+  m_stv_base_lru = static_cast<u32>(r);
+  m_stv_base_reg = r == 0 ? ARM64Reg::X25 : ARM64Reg::X26;
+  m_stv_base_usar = true;
+  m_stv_base_off = off;
+  return true;
+}
+
+// STV_GC_SALTOINT_x / STV_GC_TALON_x: la misma rama con la condicion contraria.
+FixupBranch JitArm64::STVInvertir(FixupBranch f)
+{
+  switch (f.type)
+  {
+  case FixupBranch::Type::CBZ:
+    f.type = FixupBranch::Type::CBNZ;
+    break;
+  case FixupBranch::Type::CBNZ:
+    f.type = FixupBranch::Type::CBZ;
+    break;
+  case FixupBranch::Type::TBZ:
+    f.type = FixupBranch::Type::TBNZ;
+    break;
+  case FixupBranch::Type::TBNZ:
+    f.type = FixupBranch::Type::TBZ;
+    break;
+  case FixupBranch::Type::BConditional:
+    f.cond = static_cast<CCFlags>(f.cond ^ 1);
+    break;
+  default:
+    ASSERT(false);
+  }
+  return f;
+}
+
+// STV_GC_SALTOINT_x: descuenta ciclos sin salir (W0/W1 de temporales: se llama con todo vaciado).
+void JitArm64::STVRestarDowncount(u32 ciclos)
+{
+  if (STVDcReg())
+  {
+    SUBSI2R(DOWNCOUNT_REG, DOWNCOUNT_REG, ciclos, ARM64Reg::W1);
+    return;
+  }
+  LDR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
+  SUBSI2R(ARM64Reg::W0, ARM64Reg::W0, ciclos, ARM64Reg::W1);
+  STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
+}
+
+// STV_GC_SALTOINT_x: camino tomado de un bc interno, emitido donde iria su WriteExit. Si la rama de "no saltar" es
+// una sola y el vaciado no emite nada (ni hace falta ajustar el downcount), se invierte esa rama y salta directo a la
+// etiqueta: devuelve true y quien llama ya no la resuelve.
+bool JitArm64::STVSaltoInterno(FixupBranch* unica, ARM64Reg tmp)
+{
+  const u32 destino = static_cast<u32>(js.op->stvSaltoA);
+  auto it = std::ranges::find_if(m_stv_saltos, [&](const auto& p) { return p.destino == destino; });
+  if (it == m_stv_saltos.end())
+  {
+    m_stv_saltos.push_back({destino, {}, js.downcountAmount, js.firstFPInstructionFound,
+                            js.fifoBytesSinceCheck, js.mustCheckFifo});
+    it = m_stv_saltos.end() - 1;
+  }
+  else
+  {
+    it->fp = it->fp && js.firstFPInstructionFound;
+    it->fifo = std::max(it->fifo, js.fifoBytesSinceCheck);
+    it->fifo_obligado = it->fifo_obligado || js.mustCheckFifo;
+  }
+
+  const u8* antes = GetCodePtr();
+  gpr.Flush(FlushMode::MaintainState, tmp);
+  fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+  const bool ajuste = js.downcountAmount != it->base_dc;
+  if (unica && !ajuste && GetCodePtr() == antes)
+  {
+    FixupBranch f = STVInvertir(*unica);
+    it->saltos.push_back(f);
+    return true;
+  }
+  if (ajuste)
+    STVRestarDowncount(js.downcountAmount - it->base_dc);
+  it->saltos.push_back(B());
+  return false;
+}
+
+// STV_GC_SALTOINT_x: llegada del camino de largo a una etiqueta con saltos pendientes.
+void JitArm64::STVEtiqueta(u32 indice)
+{
+  auto it = std::ranges::find_if(m_stv_saltos, [&](const auto& p) { return p.destino == indice; });
+  if (it == m_stv_saltos.end())
+    return;
+  FlushCarry();
+  gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG, IgnoreDiscardedRegisters::Yes);
+  fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG, IgnoreDiscardedRegisters::Yes);
+  // Un descartado del camino de largo esta muerto en los dos caminos (se escribe antes de leerse); el tomado lo trae en
+  // ppcState. Se toma como volcado: la union puede agregar salidas que el analisis lineal no vio (el chequeo de FPU si
+  // un camino no lo hizo, el del gather pipe por el maximo) y esas vacian todo.
+  gpr.STVVolatilesAlEstado();
+  fpr.STVVolatilesAlEstado();
+  m_constant_propagation.Clear();
+  m_stv_base_guest = {-1, -1};  // STV_GC_BASE_x: el camino tomado puede no tener la base
+  if (js.downcountAmount > it->base_dc)
+    STVRestarDowncount(js.downcountAmount - it->base_dc);
+  js.downcountAmount = it->base_dc;
+  for (const FixupBranch& f : it->saltos)
+    SetJumpTarget(f);
+  js.firstFPInstructionFound = js.firstFPInstructionFound && it->fp;
+  js.fifoBytesSinceCheck = std::max(js.fifoBytesSinceCheck, it->fifo);
+  js.mustCheckFifo = js.mustCheckFifo || it->fifo_obligado;
+  m_stv_saltos.erase(it);
+}
+
 // STV_GC_JITDC_v1: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
 // (rutinas del despachador: misma disposicion en los dos modos).
 void JitArm64::STVDcGuardar(bool nop_si_apagada)
@@ -538,8 +755,9 @@ void JitArm64::MSRUpdated(u32 msr)
   static_assert(UReg_MSR{}.IR.StartBit() == 5);
   static_assert(FEATURE_FLAG_MSR_DR == 1 << 0);
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
-  const u32 other_feature_flags = m_ppc_state.feature_flags & ~0x3;
-  const u32 feature_flags = other_feature_flags | ((msr >> 4) & 0x3);
+  const u32 other_feature_flags = m_ppc_state.feature_flags & ~(0x3 | STV_FEATURE_FLAG_MSR_FP);
+  const u32 feature_flags = other_feature_flags | ((msr >> 4) & 0x3) |
+                            ((g_stv_ff_fp && UReg_MSR(msr).FP) ? STV_FEATURE_FLAG_MSR_FP : 0);
   if (feature_flags == 0)
   {
     STR(IndexType::Unsigned, ARM64Reg::WZR, PPC_REG, PPCSTATE_OFF(feature_flags));
@@ -585,10 +803,16 @@ void JitArm64::MSRUpdated(ARM64Reg msr)
   static_assert(UReg_MSR{}.IR.StartBit() == 5);
   static_assert(FEATURE_FLAG_MSR_DR == 1 << 0);
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
-  const u32 other_feature_flags = m_ppc_state.feature_flags & ~0x3;
+  const u32 other_feature_flags = m_ppc_state.feature_flags & ~(0x3 | STV_FEATURE_FLAG_MSR_FP);
   UBFX(WA, msr, 4, 2);
   if (other_feature_flags != 0)
     ORR(WA, WA, LogicalImm(other_feature_flags, GPRSize::B32));
+  if (g_stv_ff_fp)  // STV_GC_FFFP_x: MSR.FP (bit 13) -> bandera bit 3
+  {
+    auto WF = gpr.GetScopedReg();
+    UBFX(WF, msr, 13, 1);
+    ORR(WA, WA, WF, ArithOption(WF, ShiftType::LSL, 3));
+  }
   STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(feature_flags));
 
   // Call PageTableUpdatedFromJit if needed
@@ -617,6 +841,12 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
 
   LK &= m_enable_blr_optimization;
 
+  // STV_GC_CORTO_x
+  const bool corto = STVCorto(destination);
+  const bool corto_ret = LK && STVCorto(exit_address_after_return);
+  const size_t tam = JitArm64BlockCache::STVTamEnlace(corto);
+  const size_t tam_ret = JitArm64BlockCache::STVTamEnlace(corto_ret);
+
   const u8* host_address_after_return = nullptr;
   if (LK)
   {
@@ -626,6 +856,9 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     if (exit_address_after_return_reg == ARM64Reg::INVALID_REG)
     {
       MOVI2R(ARM64Reg::X1, feature_flags << 32 | exit_address_after_return);
+      // STV_GC_IC_x: los 32 bits bajos son el LR de bcctrl (salida enlazada al destino adivinado).
+      if (m_stv_lr_en_salida)
+        STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
     else if (feature_flags == 0)
     {
@@ -636,7 +869,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
       ORRI2R(ARM64Reg::X1, EncodeRegTo64(exit_address_after_return_reg), feature_flags << 32,
              ARM64Reg::X1);
     }
-    constexpr s32 adr_offset = JitArm64BlockCache::BLOCK_LINK_SIZE + sizeof(u32) * 2;
+    const s32 adr_offset = static_cast<s32>(tam + sizeof(u32) * 2);
     host_address_after_return = GetCodePtr() + adr_offset;
     ADR(ARM64Reg::X0, adr_offset);
     STP(IndexType::Pre, ARM64Reg::X0, reg_to_push, ARM64Reg::SP, -16);
@@ -653,8 +886,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
   }
   else
   {
-    primary_farcode_addr = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE +
-                           (LK ? JitArm64BlockCache::BLOCK_LINK_SIZE : 0);
+    primary_farcode_addr = GetCodePtr() + tam + (LK ? tam_ret : 0);
   }
   const u8* return_farcode_addr = primary_farcode_addr + primary_farcode_size;
 
@@ -665,6 +897,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
   linkData.linkStatus = false;
   linkData.call = LK;
   linkData.exitFarcode = primary_farcode_addr;
+  linkData.stv_corto = corto;
   b->linkData.push_back(linkData);
 
   blocks.WriteLinkBlock(*this, linkData);
@@ -679,6 +912,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     linkData.linkStatus = false;
     linkData.call = false;
     linkData.exitFarcode = return_farcode_addr;
+    linkData.stv_corto = corto_ret;
     b->linkData.push_back(linkData);
 
     blocks.WriteLinkBlock(*this, linkData);
@@ -688,7 +922,10 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     SwitchToFarCode();
   DEBUG_ASSERT(GetCodePtr() == primary_farcode_addr || HasWriteFailed());
   MOVI2R(DISPATCHER_PC, destination);
-  if (LK)
+  // STV_GC_CORTO_x: una salida corta llega aca sin enlazar (no por vencimiento): el despachador chequea las banderas.
+  if (corto)
+    B(dispatcher);
+  else if (LK)
     BL(GetAsmRoutines()->do_timing);
   else
     B(GetAsmRoutines()->do_timing);
@@ -699,7 +936,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
       BRK(101);
     DEBUG_ASSERT(GetCodePtr() == return_farcode_addr || HasWriteFailed());
     MOVI2R(DISPATCHER_PC, exit_address_after_return);
-    B(GetAsmRoutines()->do_timing);
+    B(corto_ret ? dispatcher : GetAsmRoutines()->do_timing);
   }
 
   if (switch_to_far_code)
@@ -742,6 +979,9 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     if (exit_address_after_return_reg == ARM64Reg::INVALID_REG)
     {
       MOVI2R(ARM64Reg::X1, feature_flags << 32 | exit_address_after_return);
+      // STV_GC_LLAMADA_x: los 32 bits bajos son el LR de bcctrl.
+      if (m_stv_lr_en_salida)
+        STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
     else if (feature_flags == 0)
     {
@@ -767,6 +1007,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     linkData.exitPtrs = GetWritableCodePtr();
     linkData.linkStatus = false;
     linkData.call = false;
+    linkData.stv_corto = STVCorto(exit_address_after_return);  // STV_GC_CORTO_x
     const bool switch_to_far_code = !IsInFarCode();
     if (switch_to_far_code)
     {
@@ -776,7 +1017,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     }
     else
     {
-      linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE;
+      linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::STVTamEnlace(linkData.stv_corto);
     }
     b->linkData.push_back(linkData);
 
@@ -785,7 +1026,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     if (switch_to_far_code)
       SwitchToFarCode();
     MOVI2R(DISPATCHER_PC, exit_address_after_return);
-    B(GetAsmRoutines()->do_timing);
+    B(linkData.stv_corto ? dispatcher : GetAsmRoutines()->do_timing);
     if (switch_to_far_code)
       SwitchToNearCode();
   }
@@ -853,6 +1094,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   linkData.exitPtrs = GetWritableCodePtr();
   linkData.linkStatus = false;
   linkData.call = false;
+  linkData.stv_corto = STVCorto(exit_address_after_return);  // STV_GC_CORTO_x
   const bool switch_to_far_code = !IsInFarCode();
   if (switch_to_far_code)
   {
@@ -862,7 +1104,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   }
   else
   {
-    linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE;
+    linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::STVTamEnlace(linkData.stv_corto);
   }
   b->linkData.push_back(linkData);
 
@@ -871,7 +1113,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   if (switch_to_far_code)
     SwitchToFarCode();
   MOVI2R(DISPATCHER_PC, exit_address_after_return);
-  B(GetAsmRoutines()->do_timing);
+  B(linkData.stv_corto ? dispatcher : GetAsmRoutines()->do_timing);
   if (switch_to_far_code)
     SwitchToNearCode();
 
@@ -899,6 +1141,34 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
   // Check if {PPC_PC, feature_flags} matches the current state, then RET to ARM_PC.
   LDP(IndexType::Post, ARM64Reg::X2, ARM64Reg::X1, ARM64Reg::SP, 16);
   const u64 feature_flags = m_ppc_state.feature_flags;
+  // STV_GC_BLRCORTO_x (bit 32 de la valvula): la comparacion va por EOR + CBNZ (no toca las banderas), asi el SUBS del
+  // downcount es uno solo y el camino de fallo (ResetStack + despachador) pasa al codigo lejano. X3 esta libre (todo
+  // vaciado) y DoDownCount puede pisar X0/X1.
+  if (m_stv_volatil & 32)
+  {
+    if (feature_flags == 0)
+    {
+      EOR(ARM64Reg::X3, ARM64Reg::X1, EncodeRegTo64(DISPATCHER_PC));
+    }
+    else
+    {
+      ORRI2R(ARM64Reg::X0, EncodeRegTo64(DISPATCHER_PC), feature_flags << 32, ARM64Reg::X0);
+      EOR(ARM64Reg::X3, ARM64Reg::X1, ARM64Reg::X0);
+    }
+    DoDownCount();
+    FixupBranch fallo = CBNZ(ARM64Reg::X3);
+    RET(ARM64Reg::X2);
+    SetJumpTarget(fallo);
+    FixupBranch lejos = B();
+    SwitchToFarCode();
+    SetJumpTarget(lejos);
+    ResetStack();
+    if (m_stv_blr_sin_and)
+      AND(DISPATCHER_PC, DISPATCHER_PC, LogicalImm(~0x3, GPRSize::B32));
+    B(dispatcher);
+    SwitchToNearCode();
+    return;
+  }
   if (feature_flags == 0)
   {
     CMP(ARM64Reg::X1, EncodeRegTo64(DISPATCHER_PC));
@@ -919,6 +1189,10 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
   ResetStack();
 
   DoDownCount();
+
+  // STV_GC_LLAMADA_x: el destino llego sin enmascarar (ver bclrx).
+  if (m_stv_blr_sin_and)
+    AND(DISPATCHER_PC, DISPATCHER_PC, LogicalImm(~0x3, GPRSize::B32));
 
   B(dispatcher);
 }
@@ -993,8 +1267,11 @@ void JitArm64::WriteConditionalExceptionExit(int exception, ARM64Reg temp_gpr, A
   if (increment_sp_on_exit != 0)
     ADDI2R(ARM64Reg::SP, ARM64Reg::SP, increment_sp_on_exit, temp_gpr);
 
-  gpr.Flush(FlushMode::MaintainState, temp_gpr);
-  fpr.Flush(FlushMode::MaintainState, temp_fpr);
+  // STV_GC_VOLATIL_x: un volatil muerto puede estar descartado en una salida por excepcion.
+  const IgnoreDiscardedRegisters stv_ign =
+      (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No;
+  gpr.Flush(FlushMode::MaintainState, temp_gpr, stv_ign);
+  fpr.Flush(FlushMode::MaintainState, temp_fpr, stv_ign);
 
   WriteExceptionExit(js.compilerPC, false, true);
 
@@ -1259,6 +1536,12 @@ std::optional<size_t> JitArm64::SetEmitterStateToFreeCodeRegion()
   }
 }
 
+// STV_GC_AUDITA_x (instrumento): bytes de codigo cercano y lejano que emite cada instruccion PowerPC (con sus chequeos
+// previos y vaciados posteriores), por bloque. "<entrada>" es lo emitido antes de la primera instruccion y "<fin>" lo
+// emitido despues de la ultima. Lo prende y vuelca debug.stv.gc.audita (PerformanceMetrics); solo el hilo de CPU.
+bool g_stv_audita = false;
+std::unordered_map<u32, std::vector<STVAuditaOp>> g_stv_audita_bloques;
+
 bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 {
   auto& cpu = m_system.GetCPU();
@@ -1276,8 +1559,20 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.carryFlag = CarryFlag::InPPCState;
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
+  m_stv_saltos.clear();  // STV_GC_SALTOINT_x
+  m_stv_base_guest = {-1, -1};  // STV_GC_BASE_x
+  m_stv_talones.clear();  // STV_GC_TALON_x
 
   b->normalEntry = GetWritableCodePtr();
+  // STV_GC_AUDITA_x
+  std::vector<STVAuditaOp>* stv_aud = nullptr;
+  const u8* stv_n0 = GetCodePtr();
+  const u8* stv_f0 = m_far_code.GetCodePtr();
+  if (g_stv_audita)
+  {
+    stv_aud = &g_stv_audita_bloques[em_address];
+    stv_aud->clear();
+  }
 
   // STV_GC_JITGF_v1: modo 2, verificacion de los fijos contra ppcState al entrar.
   if (STVGf() == 2)
@@ -1358,9 +1653,20 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   }
 
   // Translate instructions
+  if (stv_aud)
+  {
+    stv_aud->push_back({"<entrada>", em_address, 0, static_cast<u32>(GetCodePtr() - stv_n0),
+                        static_cast<u32>(m_far_code.GetCodePtr() - stv_f0)});
+  }
   for (u32 i = 0; i < code_block.m_num_instructions; i++)
   {
+    const u8* stv_in = GetCodePtr();
+    const u8* stv_if = m_far_code.GetCodePtr();
     PPCAnalyst::CodeOp& op = m_code_buffer[i];
+
+    // STV_GC_SALTOINT_x
+    if (op.stvEtiqueta)
+      STVEtiqueta(i);
 
     js.compilerPC = op.address;
     js.op = &op;
@@ -1436,8 +1742,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         TST(WA, LogicalImm(cause_mask, GPRSize::B32));
         B(CC_EQ, done_here);
 
-        gpr.Flush(FlushMode::MaintainState, WA);
-        fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+        gpr.Flush(FlushMode::MaintainState, WA,
+                  (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
+        fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG,
+                  (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
         WriteExceptionExit(js.compilerPC, true, true);
         SwitchToNearCode();
         SetJumpTarget(no_ext_exception);
@@ -1496,6 +1804,12 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         SetJumpTarget(no_breakpoint);
       }
 
+      // STV_GC_FFFP_x: el bloque se compilo con MSR.FP = 1 (bandera de bloque): no hace falta el chequeo.
+      if ((opinfo->flags & FL_USE_FPU) && !js.firstFPInstructionFound && g_stv_ff_fp &&
+          (m_ppc_state.feature_flags & STV_FEATURE_FLAG_MSR_FP))
+      {
+        js.firstFPInstructionFound = true;
+      }
       if ((opinfo->flags & FL_USE_FPU) && !js.firstFPInstructionFound)
       {
         FixupBranch b1;
@@ -1509,8 +1823,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
           SwitchToFarCode();
           SetJumpTarget(far_addr);
 
-          gpr.Flush(FlushMode::MaintainState, WA);
-          fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+          gpr.Flush(FlushMode::MaintainState, WA,
+                    (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
+          fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG,
+                    (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
 
           LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(Exceptions));
           ORR(WA, WA, LogicalImm(EXCEPTION_FPU_UNAVAILABLE, GPRSize::B32));
@@ -1576,16 +1892,20 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         fpr.DiscardRegisters(op.fprDiscardable);
         gpr.DiscardCRRegisters(op.crDiscardable);
       }
-      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut),
+      // STV_GC_VOLATIL_x: un volatil muerto en el blr final ya se descarto: no se vacia (ni se convierte).
+      const BitSet32 stv_gd = m_stv_volatil ? op.gprDiscardable : BitSet32{};
+      const BitSet32 stv_fd = m_stv_volatil ? op.fprDiscardable : BitSet32{};
+      const BitSet8 stv_cd = m_stv_volatil ? op.crDiscardable : BitSet8{};  // STV_GC_CRVOL_x
+      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut) & ~stv_gd,
                          FlushMode::Full);
       fpr.FlushRegisters(~(op.fprWillBeRead | op.fprWillBeWritten) &
-                             (op.fregsIn | op.GetFregsOut()),
+                             (op.fregsIn | op.GetFregsOut()) & ~stv_fd,
                          FlushMode::Full);
-      gpr.FlushCRRegisters(~(op.crWillBeRead | op.crWillBeWritten) & (op.crIn | op.crOut),
+      gpr.FlushCRRegisters(~(op.crWillBeRead | op.crWillBeWritten) & (op.crIn | op.crOut) & ~stv_cd,
                            FlushMode::Full);
-      gpr.FlushRegisters(~op.gprWillBeWritten & op.regsOut, FlushMode::Undirty);
-      fpr.FlushRegisters(~op.fprWillBeWritten & op.GetFregsOut(), FlushMode::Undirty);
-      gpr.FlushCRRegisters(~op.crWillBeWritten & op.crOut, FlushMode::Undirty);
+      gpr.FlushRegisters(~op.gprWillBeWritten & op.regsOut & ~stv_gd, FlushMode::Undirty);
+      fpr.FlushRegisters(~op.fprWillBeWritten & op.GetFregsOut() & ~stv_fd, FlushMode::Undirty);
+      gpr.FlushCRRegisters(~op.crWillBeWritten & op.crOut & ~stv_cd, FlushMode::Undirty);
 
       if (opinfo->flags & FL_LOADSTORE)
         ++js.numLoadStoreInst;
@@ -1594,6 +1914,25 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         ++js.numFloatingPointInst;
     }
 
+    if (stv_aud)
+    {
+      stv_aud->push_back({m_code_buffer[i].opinfo->opname, m_code_buffer[i].address, m_code_buffer[i].inst.hex,
+                          static_cast<u32>(GetCodePtr() - stv_in),
+                          static_cast<u32>(m_far_code.GetCodePtr() - stv_if)});
+    }
+    // STV_GC_BASE_x: la base deja de valer si alguna instruccion (o las fusionadas) escribe su registro.
+    for (int& g : m_stv_base_guest)
+    {
+      if (g < 0)
+        continue;
+      for (int k = 0; k <= js.skipInstructions; k++)
+      {
+        if (m_code_buffer[i + k].regsOut[g])
+          g = -1;
+        if (g < 0)
+          break;
+      }
+    }
     i += js.skipInstructions;
     js.skipInstructions = 0;
   }
@@ -1603,6 +1942,45 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     WriteExit(nextPC);
+  }
+
+  // STV_GC_SALTOINT_x: saltos internos cuya etiqueta no se alcanzo (el lazo corto antes: gancho de HLE): salen al
+  // destino como un bc comun. Llegan con todo en ppcState.
+  for (const STVSaltoPendiente& p : m_stv_saltos)
+  {
+    for (const FixupBranch& f : p.saltos)
+      SetJumpTarget(f);
+    js.downcountAmount = p.base_dc;
+    WriteExit(m_code_buffer[p.destino].address);
+  }
+  m_stv_saltos.clear();
+
+  // STV_GC_TALON_x: salidas condicionales emitidas fuera de linea, despues del cuerpo del bloque: el camino que sigue de
+  // largo solo paga la rama no tomada. Con el downcount y el estado del gather pipe del punto de salida.
+  for (const STVTalon& t : m_stv_talones)
+  {
+    SetJumpTarget(t.rama);
+    const u32 dc = js.downcountAmount;
+    const u32 fb = js.fifoBytesSinceCheck;
+    js.downcountAmount = t.dc;
+    js.fifoBytesSinceCheck = 0;
+    WriteExit(t.destino);
+    js.downcountAmount = dc;
+    js.fifoBytesSinceCheck = fb;
+  }
+  m_stv_talones.clear();
+
+  // STV_GC_AUDITA_x: lo que se emite despues de la ultima instruccion (vaciado y salida de un bloque cortado).
+  if (stv_aud && !stv_aud->empty())
+  {
+    u32 cerca = 0, lejos = 0;
+    for (const auto& e : *stv_aud)
+    {
+      cerca += e.cerca;
+      lejos += e.lejos;
+    }
+    stv_aud->push_back({"<fin>", nextPC, 0, static_cast<u32>(GetCodePtr() - stv_n0) - cerca,
+                        static_cast<u32>(m_far_code.GetCodePtr() - stv_f0) - lejos});
   }
 
   if (HasWriteFailed() || m_far_code.HasWriteFailed())

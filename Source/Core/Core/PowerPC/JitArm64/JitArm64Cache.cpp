@@ -24,6 +24,17 @@ void JitArm64BlockCache::WriteLinkBlock(Arm64Gen::ARM64XEmitter& emit,
 {
   const u8* start = emit.GetCodePtr();
 
+  // STV_GC_CORTO_x: un B (o BL) al bloque, o al codigo lejano de la salida, que va al despachador (que si chequea).
+  if (source.stv_corto)
+  {
+    const u8* destino = dest ? dest->normalEntry : source.exitFarcode;
+    if (source.call)
+      emit.BL(destino);
+    else
+      emit.B(destino);
+    return;
+  }
+
   if (!dest)
   {
     emit.MOVI2R(DISPATCHER_PC, source.exitAddress);
@@ -85,7 +96,7 @@ void JitArm64BlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const 
 {
   const Common::ScopedJITPageWriteAndNoExecute enable_jit_page_writes;
   u8* location = source.exitPtrs;
-  ARM64XEmitter emit(location, location + BLOCK_LINK_SIZE);
+  ARM64XEmitter emit(location, location + STVTamEnlace(source.stv_corto));
 
   WriteLinkBlock(emit, source, dest);
   emit.FlushIcache();

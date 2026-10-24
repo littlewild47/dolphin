@@ -48,6 +48,10 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
   ARM64Reg addr_reg = ARM64Reg::W1;
   u32 imm_addr = 0;
   bool is_immediate = false;
+  // STV_GC_DIRUXTW_x (bit 64 de la valvula): con desplazamiento 0 la direccion es el registro del invitado tal cual:
+  // el acceso rapido la extiende en la misma instruccion ([MEM_REG, Wn, UXTW]) y el camino lento la toma de ahi, en
+  // vez de copiarla a W1 (un MOV por acceso).
+  bool stv_dir = false;
 
   if (offsetReg == -1)
   {
@@ -57,6 +61,13 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
       {
         is_immediate = true;
         imm_addr = gpr.GetImm(addr) + offset;
+      }
+      else if ((m_stv_volatil & 64) && offset == 0 && !update && jo.fastmem && !jo.memcheck)
+      {
+        stv_dir = true;
+      }
+      else if (STVBasePreparar(addr, up_reg, offset, BackPatchInfo::GetFlagSize(flags) / 8, update))
+      {
       }
       else
       {
@@ -107,7 +118,7 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
     }
   }
 
-  ARM64Reg XA = EncodeRegTo64(addr_reg);
+  ARM64Reg XA = stv_dir ? up_reg : (m_stv_base_usar ? m_stv_base_reg : EncodeRegTo64(addr_reg));
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {
@@ -196,6 +207,7 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
 
   u32 imm_addr = 0;
   bool is_immediate = false;
+  bool stv_dir = false;  // STV_GC_DIRUXTW_x
 
   if (regOffset == -1)
   {
@@ -205,6 +217,13 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
       {
         is_immediate = true;
         imm_addr = gpr.GetImm(dest) + offset;
+      }
+      else if ((m_stv_volatil & 64) && offset == 0 && !update && jo.fastmem && !jo.memcheck)
+      {
+        stv_dir = true;
+      }
+      else if (STVBasePreparar(dest, reg_dest, offset, BackPatchInfo::GetFlagSize(flags) / 8, update))
+      {
       }
       else
       {
@@ -255,7 +274,7 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
     }
   }
 
-  ARM64Reg XA = EncodeRegTo64(addr_reg);
+  ARM64Reg XA = stv_dir ? reg_dest : (m_stv_base_usar ? m_stv_base_reg : EncodeRegTo64(addr_reg));
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {

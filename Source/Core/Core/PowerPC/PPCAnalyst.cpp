@@ -4,6 +4,7 @@
 #include "Core/PowerPC/PPCAnalyst.h"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -243,6 +244,9 @@ bool PPCAnalyzer::CanSwapAdjacentOps(const CodeOp& a, const CodeOp& b) const
   if (a.canCauseException || b.canCauseException)
     return false;
   if (a.canEndBlock || b.canEndBlock)
+    return false;
+  // STV_GC_SALTOINT_x: nada cruza una etiqueta (ni la etiqueta se mueve).
+  if (a.stvEtiqueta || b.stvEtiqueta)
     return false;
   if (a_flags & (FL_TIMER | FL_NO_REORDER | FL_SET_OE))
     return false;
@@ -621,8 +625,14 @@ void PPCAnalyzer::SetInstructionStats(CodeBlock* block, CodeOp* code,
   code->outputFPRF = (opinfo->flags & FL_SET_FPRF) != 0;
   code->canEndBlock = InstructionCanEndBlock(*code);
 
+  // STV_GC_VOLATIL_x (bit 1): JitArm64 no emite la excepcion de programa de los pares (solo existe si la
+  // instruccion cae al interprete, y ese vaciado ya ignora los descartados).
+  const bool stv_ps = HasOption(OPTION_STV_LSU_SIN_EXCEPCION) &&
+                      (opinfo->type == OpType::PS || opinfo->type == OpType::LoadPS ||
+                       opinfo->type == OpType::StorePS);
   code->canCauseException = first_fpu_instruction ||
-                            (opinfo->flags & (FL_LOADSTORE | FL_PROGRAMEXCEPTION)) != 0 ||
+                            ((opinfo->flags & FL_PROGRAMEXCEPTION) != 0 && !stv_ps) ||
+                            ((opinfo->flags & FL_LOADSTORE) != 0 && !HasOption(OPTION_STV_LSU_SIN_EXCEPCION)) ||
                             (m_enable_float_exceptions && (opinfo->flags & FL_FLOAT_EXCEPTION)) ||
                             (m_enable_div_by_zero_exceptions && (opinfo->flags & FL_FLOAT_DIV));
 
@@ -803,6 +813,37 @@ static bool CanCauseGatherPipeInterruptCheck(const CodeOp& op)
          op.opinfo->type == OpType::StorePS;
 }
 
+// STV_GC_HOJA_x: hasta 8 instrucciones en linea recta terminadas en blr incondicional: ninguna otra rama (b, bc, bclr,
+// bcctr, rfi, sc), ni mtspr/mfspr de LR o CTR, ni mtmsr/mfmsr, ni tw/twi.
+static bool STVEsHojaChica(PowerPC::MMU& mmu, u32 destino)
+{
+  for (u32 k = 0; k < 8; k++)
+  {
+    const auto r = mmu.TryReadInstruction(destino + 4 * k);
+    if (!r.valid)
+      return false;
+    const UGeckoInstruction in = r.hex;
+    if (in.hex == 0x4E800020)
+      return true;
+    switch (in.OPCD)
+    {
+    case 3:   // twi
+    case 16:  // bc
+    case 17:  // sc
+    case 18:  // b
+    case 19:  // bclr, bcctr, rfi, isync, cr...
+      return false;
+    case 31:
+      if (in.SUBOP10 == 4 || in.SUBOP10 == 146 || in.SUBOP10 == 83 || in.SUBOP10 == 339 || in.SUBOP10 == 467)
+        return false;  // tw, mtmsr, mfmsr, mfspr, mtspr
+      break;
+    default:
+      break;
+    }
+  }
+  return false;
+}
+
 u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
                          std::size_t block_size) const
 {
@@ -868,7 +909,36 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     //       If it is small, the performance will be down.
     //       If it is big, the size of generated code will be big and
     //       cache clearning will happen many times.
-    if (enable_follow && HasOption(OPTION_BRANCH_FOLLOW))
+    // STV_GC_HOJA_x
+    const bool stv_hoja_llamada =
+        !enable_follow && HasOption(OPTION_STV_HOJA) && inst.OPCD == 18 && inst.LK && block_size > 1 &&
+        numFollows < BRANCH_FOLLOWING_THRESHOLD && STVEsHojaChica(mmu, code[i].branchTo);
+    if (!enable_follow && HasOption(OPTION_STV_HOJA))
+    {
+      if (stv_hoja_llamada)
+      {
+        follow = true;
+        found_call = true;
+        caller = i;
+      }
+      else if (inst.OPCD == 19 && inst.SUBOP10 == 16 && !inst.LK && found_call)
+      {
+        code[i].branchTo = code[caller].address + 4;
+        if ((inst.BO & BO_DONT_DECREMENT_FLAG) && (inst.BO & BO_DONT_CHECK_CONDITION) &&
+            numFollows < BRANCH_FOLLOWING_THRESHOLD)
+        {
+          follow = true;
+          found_call = false;
+          code[i].skip = true;
+          code[caller].skipLRStack = true;
+        }
+      }
+      else if (IsMtspr(inst) && GetSPRIndex(inst) == SPR_LR)
+      {
+        found_call = false;
+      }
+    }
+    else if (enable_follow && HasOption(OPTION_BRANCH_FOLLOW))
     {
       if (inst.OPCD == 18 && block_size > 1)
       {
@@ -975,6 +1045,34 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
 
   block->m_num_instructions = num_inst;
 
+  // STV_GC_SALTOINT_x: bc condicional sin LK hacia una instruccion posterior del bloque, con las direcciones contiguas
+  // hasta ella (sin seguir ramas en el medio: el codigo desde el destino es exactamente lo que corre desde ahi). Tope de
+  // 128 instrucciones: el TBZ del salto directo llega a 32 KB.
+  if (HasOption(OPTION_STV_SALTO_INTERNO) && HasOption(OPTION_CONDITIONAL_CONTINUE))
+  {
+    for (u32 i = 0; i + 1 < num_inst; i++)
+    {
+      const UGeckoInstruction in = code[i].inst;
+      if (in.OPCD != 16 || in.LK || code[i].skip || code[i].branchIsIdleLoop)
+        continue;
+      if ((in.BO & BO_DONT_DECREMENT_FLAG) && (in.BO & BO_DONT_CHECK_CONDITION))
+        continue;
+      const u32 destino = code[i].branchTo;
+      if (destino <= code[i].address || destino - code[i].address > 128 * 4)
+        continue;
+      const u32 j = i + (destino - code[i].address) / 4;
+      if (j >= num_inst)
+        continue;
+      bool contiguo = true;
+      for (u32 k = i + 1; k <= j && contiguo; k++)
+        contiguo = code[k].address == code[k - 1].address + 4;
+      if (!contiguo)
+        continue;
+      code[i].stvSaltoA = static_cast<s16>(j);
+      code[j].stvEtiqueta = true;
+    }
+  }
+
   if (block->m_num_instructions > 1)
     ReorderInstructions(block->m_num_instructions, code);
 
@@ -993,6 +1091,17 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   BitSet8 crWillBeRead, crWillBeWritten, crDiscardable;
   BitSet32 gprWillBeRead, gprWillBeWritten, fprWillBeRead, fprWillBeWritten, gprDiscardable,
       fprDiscardable, fprInXmm;
+  // STV_GC_VOLATIL_x: blr incondicional sin link al final del bloque (y no saltado por seguir ramas).
+  int stv_blr_final = -1;
+  BitSet32 stv_vg, stv_vf;
+  BitSet8 stv_vc;  // STV_GC_CRVOL_x
+  const BitSet8 stv_cr_vol = HasOption(OPTION_STV_CR_VOLATIL) ? BitSet8{0, 1, 5, 6, 7} : BitSet8{};
+  if (HasOption(OPTION_STV_VOLATILES_MUERTOS) && block->m_num_instructions > 0)
+  {
+    const CodeOp& u = code[block->m_num_instructions - 1];
+    if (!u.skip && u.inst.OPCD == 19 && u.inst.SUBOP10 == 16 && !u.inst.LK && (u.inst.BO & 0x14) == 0x14)
+      stv_blr_final = static_cast<int>(block->m_num_instructions - 1);
+  }
   for (int i = block->m_num_instructions - 1; i >= 0; i--)
   {
     CodeOp& op = code[i];
@@ -1025,9 +1134,33 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     op.fprWillBeWritten = fprWillBeWritten;
     op.crWillBeRead = crWillBeRead;
     op.crWillBeWritten = crWillBeWritten;
-    op.gprDiscardable = gprDiscardable;
-    op.fprDiscardable = fprDiscardable;
-    op.crDiscardable = crDiscardable;
+    op.gprDiscardable = gprDiscardable | stv_vg;
+    op.fprDiscardable = fprDiscardable | stv_vf;
+    op.crDiscardable = crDiscardable | stv_vc;
+    // STV_GC_VOLATIL_x: volatiles muertos desde el blr final (salvo r3-r4 y f1-f4, posibles valores de retorno). Los
+    // corta solo una salida a otro codigo (rama, sc, rfi...): una excepcion o el chequeo de interrupcion tras un guardado
+    // vuelve a la instruccion siguiente de esta misma funcion, que no los lee.
+    if (i == stv_blr_final)
+    {
+      stv_vg = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12} & ~op.regsIn;
+      stv_vf = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13} & ~op.fregsIn;
+      stv_vc = stv_cr_vol & ~op.crIn;
+    }
+    else if (op.canEndBlock || hle || breakpoint)
+    {
+      stv_vg = BitSet32{};
+      stv_vf = BitSet32{};
+      stv_vc = BitSet8{};
+    }
+    else if (stv_blr_final >= 0)
+    {
+      stv_vg |= op.regsOut & BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12};
+      stv_vg &= ~op.regsIn;
+      stv_vf |= op.GetFregsOut() & BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13};
+      stv_vf &= ~op.fregsIn;
+      stv_vc |= op.crOut & stv_cr_vol;
+      stv_vc &= ~op.crIn;
+    }
     op.fprInXmm = fprInXmm;
     gprWillBeRead &= ~op.regsOut;
     gprWillBeRead |= op.regsIn;
@@ -1075,9 +1208,40 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   // Forward scan, for flags that need the other direction for calculation.
   BitSet32 fprIsSingle, fprIsDuplicated, fprIsStoreSafe;
   BitSet8 gqrUsed, gqrModified;
+  // STV_GC_SALTOINT_x: en una etiqueta vale lo que vale en todos los caminos que llegan (interseccion).
+  std::vector<std::array<BitSet32, 3>> stv_et;
+  std::vector<bool> stv_et_hay;
+  if (HasOption(OPTION_STV_SALTO_INTERNO))
+  {
+    stv_et.resize(block->m_num_instructions);
+    stv_et_hay.resize(block->m_num_instructions, false);
+  }
   for (u32 i = 0; i < block->m_num_instructions; i++)
   {
     CodeOp& op = code[i];
+
+    if (op.stvEtiqueta && !stv_et.empty() && stv_et_hay[i])
+    {
+      fprIsSingle &= stv_et[i][0];
+      fprIsDuplicated &= stv_et[i][1];
+      fprIsStoreSafe &= stv_et[i][2];
+    }
+    if (op.stvSaltoA >= 0 && !stv_et.empty())
+    {
+      // bc no toca FPR: el estado al salir es el de ahora.
+      const u32 j = static_cast<u32>(op.stvSaltoA);
+      if (stv_et_hay[j])
+      {
+        stv_et[j][0] &= fprIsSingle;
+        stv_et[j][1] &= fprIsDuplicated;
+        stv_et[j][2] &= fprIsStoreSafe;
+      }
+      else
+      {
+        stv_et[j] = {fprIsSingle, fprIsDuplicated, fprIsStoreSafe};
+        stv_et_hay[j] = true;
+      }
+    }
 
     op.fprIsSingle = fprIsSingle;
     op.fprIsDuplicated = fprIsDuplicated;

@@ -3,6 +3,10 @@
 
 #include "Core/PowerPC/JitArm64/JitArm64_RegCache.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #include <algorithm>
 #include <cstddef>
 #include <vector>
@@ -154,8 +158,21 @@ Arm64GPRCache::Arm64GPRCache() : Arm64RegCache(GUEST_GPR_COUNT + GUEST_CR_COUNT)
 {
 }
 
+// STV_GC_VOLATIL_x: un volatil descartado en el blr final del bloque anterior quedo "en ningun lado"; al empezar un
+// bloque, todo lo que no esta en un registro se toma como volcado (su valor ya estaba muerto).
+void Arm64RegCache::STVVolatilesAlEstado()
+{
+  for (size_t i = 0; i < m_guest_registers.size(); ++i)
+  {
+    OpArg& reg = m_guest_registers[i];
+    if (!STVEsFijo(i) && !reg.IsInHostRegister() && !reg.IsInPPCState())
+      reg.Flush();
+  }
+}
+
 void Arm64GPRCache::Start(PPCAnalyst::BlockRegStats& stats)
 {
+  STVVolatilesAlEstado();
   // STV_GC_JITGF_v1: al entrar a un bloque cada GPR fijo esta en su registro (invariante entre bloques).
   if (m_stv_gf != 0)
   {
@@ -177,6 +194,19 @@ void Arm64GPRCache::STVFijoEnHost(size_t index)
 
 // STV_GC_JITGF_v1: cambia el modo y reconstruye el orden de asignacion (con la valvula, sin W19-W24). Se llama con la
 // cache vacia; todo invitado vuelve a "solo en ppcState" y Start() vuelve a enlazar los fijos en cada bloque.
+// STV_GC_BASE_x: reserva (o devuelve) W25; mismo procedimiento que STVGfConfigurar (cache vacia).
+void Arm64GPRCache::STVBaseConfigurar(bool reservar, bool reservar26)
+{
+  if (reservar == m_stv_x25 && reservar26 == m_stv_x26)
+    return;
+  m_stv_x25 = reservar;
+  m_stv_x26 = reservar26;
+  for (auto& reg : m_guest_registers)
+    reg.Flush();
+  m_host_registers.clear();
+  GetAllocationOrder();
+}
+
 void Arm64GPRCache::STVGfConfigurar(int modo)
 {
   if (modo == m_stv_gf)
@@ -547,6 +577,11 @@ void Arm64GPRCache::BindForWrite(size_t index, bool will_read, bool will_write)
     }
     else
     {
+#ifdef __ANDROID__
+      if (will_read && !reg.IsInPPCState())
+        __android_log_print(ANDROID_LOG_ERROR, "STVGC", "descartado leido: indice %zu pc %08x",
+                            index, m_jit->js.compilerPC);
+#endif
       ASSERT_MSG(DYNA_REC, !will_read || reg.IsInPPCState(), "Attempted to load a discarded value");
       const ARM64Reg host_reg = bitsize != 64 ? GetReg() : EncodeRegTo64(GetReg());
       reg.Load(host_reg);
@@ -606,6 +641,11 @@ void Arm64GPRCache::GetAllocationOrder()
   {
     // STV_GC_JITGF_v1: con la valvula, W19-W24 son de los GPR fijos (pool 27 -> 21).
     if (m_stv_gf != 0 && reg >= ARM64Reg::W19 && reg <= ARM64Reg::W24)
+      continue;
+    // STV_GC_BASE_x: con la valvula, W25 es el registro de base (X25 = MEM_REG + rA), fuera del pool.
+    if (m_stv_x25 && reg == ARM64Reg::W25)
+      continue;
+    if (m_stv_x26 && reg == ARM64Reg::W26)  // STV_GC_BASE2_x
       continue;
     m_host_registers.push_back(HostReg(reg));
   }

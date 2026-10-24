@@ -317,6 +317,8 @@ static void CPUSetInitialExecutionState(Core::System& system, bool force_paused 
   Host_UpdateDisasmDialog();
 }
 
+std::atomic<int> g_stv_tid_cpu{0};  // STV_GC_AFIN_x
+
 // Create the CPU thread, which is a CPU + Video thread in Single Core mode.
 static void CpuThread(Core::System& system, const std::optional<std::string>& savestate_path,
                       bool delete_savestate)
@@ -325,6 +327,10 @@ static void CpuThread(Core::System& system, const std::optional<std::string>& sa
     Common::SetCurrentThreadName("CPU thread");
   else
     Common::SetCurrentThreadName("CPU-GPU thread");
+#ifdef __ANDROID__
+  // STV_GC_AFIN_x: el hilo de metricas fija este hilo solo en cpu7 y el resto del proceso en cpu0-6.
+  g_stv_tid_cpu.store(gettid());
+#endif
 
   // This needs to be delayed until after the video backend is ready.
   DolphinAnalytics::Instance().ReportGameStart();

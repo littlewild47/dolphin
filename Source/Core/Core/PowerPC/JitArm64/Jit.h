@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <unordered_map>
+#include <vector>
+
 #include <cstddef>
 #include <map>
 #include <optional>
@@ -19,6 +22,32 @@
 #include "Core/PowerPC/PPCAnalyst.h"
 
 class HostDisassembler;
+
+// STV_GC_AUDITA_x (instrumento, ver Jit.cpp)
+struct STVAuditaOp
+{
+  const char* nombre;
+  u32 pc;
+  u32 hex;
+  u32 cerca;
+  u32 lejos;
+};
+extern bool g_stv_audita;
+extern std::unordered_map<u32, std::vector<STVAuditaOp>> g_stv_audita_bloques;
+
+// STV_GC_IC_x
+struct STVICSitioJit
+{
+  u32 destino = 0;
+  u32 racha = 0;
+  u32 llamadas = 0;
+  u8 estado = 0;  // 0 aprendiendo, 1 adivinado, 2 mega
+};
+extern std::unordered_map<u32, STVICSitioJit> g_stv_ic_sitios;
+u32 STVICAprender(u32 sitio, u32 destino);
+// STV_GC_ICCUENTA_x
+void STVICRegistrar(u32 sitio, u32 destino);
+void STVICVolcar(const char* ruta);
 
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {
@@ -422,6 +451,49 @@ protected:
   void ComputeCarry();
   void LoadCarry();
   void FlushCarry();
+
+  // STV_GC_SALTOINT_x: saltos internos hacia adelante (bc a una instruccion posterior del mismo bloque). El camino
+  // tomado vacia en MaintainState y salta a la etiqueta; en la etiqueta el camino de largo vacia en Full, asi los dos
+  // llegan con todo en ppcState (los fijos en su registro). El downcount queda en la base del primer salto: el de largo
+  // descuenta lo suyo en la etiqueta, y un salto posterior descuenta su diferencia antes de saltar.
+  struct STVSaltoPendiente
+  {
+    u32 destino;
+    std::vector<Arm64Gen::FixupBranch> saltos;
+    u32 base_dc;
+    bool fp;
+    u32 fifo;
+    bool fifo_obligado;
+  };
+  std::vector<STVSaltoPendiente> m_stv_saltos;
+  bool STVSaltoInterno(Arm64Gen::FixupBranch* unica, Arm64Gen::ARM64Reg tmp);
+  static Arm64Gen::FixupBranch STVInvertir(Arm64Gen::FixupBranch f);
+  // STV_GC_TALON_x (bit 32768)
+  struct STVTalon
+  {
+    Arm64Gen::FixupBranch rama;
+    u32 destino;
+    u32 dc;
+  };
+  std::vector<STVTalon> m_stv_talones;
+  void STVEtiqueta(u32 indice);
+  void STVRestarDowncount(u32 ciclos);
+  // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del
+  // grafo de bloques tiene una arista a una direccion <= la de su bloque de origen (o pasa por el despachador), y ahi
+  // se sigue chequeando; el downcount se descuenta igual en todas.
+  // STV_GC_BASE_x (bit 16384): X25 = MEM_REG + (u64)rA del invitado m_stv_base_guest (-1: nada). Un acceso con la misma
+  // base va como [X25, #desplazamiento] (las guardas de 2 GiB de la arena cubren el desborde de 32 bits, como en Jit64).
+  // STV_GC_BASE2_x (bit 65536): segunda ranura en X26 (W26 sale del pool; solo lo escriben las salidas al irse).
+  std::array<int, 2> m_stv_base_guest{-1, -1};
+  u32 m_stv_base_lru = 0;  // ranura usada mas recientemente
+  Arm64Gen::ARM64Reg m_stv_base_reg = Arm64Gen::ARM64Reg::X25;
+  bool m_stv_base_usar = false;
+  s32 m_stv_base_off = 0;
+  bool STVBasePreparar(int guest, Arm64Gen::ARM64Reg host, s32 off, u32 bytes, bool update);
+  // STV_GC_LLAMADA_x
+  bool m_stv_lr_en_salida = false;
+  bool m_stv_blr_sin_and = false;
+  bool STVCorto(u32 destino) const { return (m_stv_volatil & 16) && destino > js.blockStart; }
 
   void reg_imm(u32 d, u32 a, u32 value,
                void (ARM64XEmitter::*op)(Arm64Gen::ARM64Reg, Arm64Gen::ARM64Reg, u64,

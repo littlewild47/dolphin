@@ -214,9 +214,33 @@ void JitArm64::bcx(UGeckoInstruction inst)
       STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
 
+    // STV_GC_SALTOINT_x
+    bool stv_directo = false;
+    const bool stv_ctr = (inst.BO & BO_DONT_DECREMENT_FLAG) == 0;
+    const bool stv_cond = (inst.BO & BO_DONT_CHECK_CONDITION) == 0;
+    if (js.op->stvSaltoA >= 0 && !inst.LK && !js.op->branchIsIdleLoop && !IsBranchWatchEnabled())
+    {
+      FixupBranch* unica = stv_ctr == stv_cond ? nullptr : (stv_ctr ? &pCTRDontBranch : &pConditionDontBranch);
+      stv_directo = STVSaltoInterno(unica, WB);
+    }
+    else
+    {
+    const u8* stv_antes = GetCodePtr();
     gpr.Flush(FlushMode::MaintainState, WB);
     fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
 
+    // STV_GC_TALON_x: salida condicional de una sola rama, sin nada que vaciar ni Cleanup: la rama de "no saltar" se
+    // invierte y va al talon que DoJit emite al final del bloque (tope de 300 instrucciones: el TBZ llega a 32 KB).
+    if ((m_stv_volatil & 32768) && GetCodePtr() == stv_antes && !inst.LK && !js.op->branchIsIdleLoop &&
+        !IsBranchWatchEnabled() && stv_ctr != stv_cond && js.fifoBytesSinceCheck == 0 && !IsProfilingEnabled() &&
+        !(m_ppc_state.feature_flags & FEATURE_FLAG_PERFMON) && code_block.m_num_instructions <= 300)
+    {
+      FixupBranch* unica = stv_ctr ? &pCTRDontBranch : &pConditionDontBranch;
+      m_stv_talones.push_back({STVInvertir(*unica), js.op->branchTo, js.downcountAmount});
+      stv_directo = true;
+    }
+    else
+    {
     if (IsBranchWatchEnabled())
     {
       BitSet32 gpr_caller_save = gpr.GetCallerSavedUsed() & ~BitSet32{DecodeReg(WB)};
@@ -240,10 +264,12 @@ void JitArm64::bcx(UGeckoInstruction inst)
     {
       WriteExit(js.op->branchTo, inst.LK, js.compilerPC + 4, WA);
     }
+    }
+    }
 
-    if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)
+    if (stv_cond && !stv_directo)
       SetJumpTarget(pConditionDontBranch);
-    if ((inst.BO & BO_DONT_DECREMENT_FLAG) == 0)
+    if (stv_ctr && !stv_directo)
       SetJumpTarget(pCTRDontBranch);
   }
 
@@ -279,6 +305,100 @@ void JitArm64::bcctrx(UGeckoInstruction inst)
              "bcctrx with decrement and test CTR option is invalid!");
 
   // BO_2 == 1z1zz -> b always
+
+  // STV_GC_LLAMADA_x (bit 128 de la valvula): el destino va directo a DISPATCHER_PC; tras un mtctr se toma del registro
+  // de origen (sin recargar CTR recien guardado); en bcctrl el LR sale de la misma constante que se empuja en la pila
+  // de BLR (STR W1) en vez de armarla dos veces.
+  if ((m_stv_volatil & 128) && !IsBranchWatchEnabled() && (!inst.LK_3 || m_enable_blr_optimization))
+  {
+    ARM64Reg origen = ARM64Reg::INVALID_REG;
+    if (js.op != m_code_buffer.data())
+    {
+      const PPCAnalyst::CodeOp& prev = *(js.op - 1);
+      if (!prev.skip && prev.inst.OPCD == 31 && prev.inst.SUBOP10 == 467 &&
+          ((prev.inst.SPRU << 5) | prev.inst.SPRL) == SPR_CTR &&
+          gpr.STVEnHost(prev.inst.RS))
+      {
+        origen = gpr.R(prev.inst.RS);
+      }
+    }
+    // El destino se calcula ANTES de vaciar (un vaciado en pares puede tomar un registro nuevo para un inmediato y pisar
+    // el de origen ya liberado); WD suele ser W26 (primero en el orden), y entonces WriteExit no copia.
+    auto WD_scoped = gpr.GetScopedReg();
+    // STV_GC_BASE2_x: idem, directo a DISPATCHER_PC (bcctr incondicional: fin de bloque).
+    const ARM64Reg WD = (m_stv_volatil & 81920) == 81920 ? DISPATCHER_PC : ARM64Reg(WD_scoped);
+    if (origen != ARM64Reg::INVALID_REG)
+    {
+      AND(WD, origen, LogicalImm(~0x3, GPRSize::B32));
+    }
+    else
+    {
+      LDR(IndexType::Unsigned, WD, PPC_REG, PPCSTATE_OFF_SPR(SPR_CTR));
+      AND(WD, WD, LogicalImm(~0x3, GPRSize::B32));
+    }
+    gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
+    fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
+    // STV_GC_IC_x
+    if (m_stv_volatil & 1024)
+    {
+      const STVICSitioJit* e = nullptr;
+      if (auto it = g_stv_ic_sitios.find(js.compilerPC); it != g_stv_ic_sitios.end())
+        e = &it->second;
+      if (e && e->estado == 1)
+      {
+        const u32 adivinado = e->destino;
+        FixupBranch fallo;
+        {
+          auto WT = gpr.GetScopedReg();
+          MOVI2R(WT, adivinado);
+          EOR(WT, WT, WD);
+          fallo = CBNZ(WT);
+        }
+        m_stv_lr_en_salida = inst.LK_3;
+        WriteExit(adivinado, inst.LK_3, js.compilerPC + 4);
+        SetJumpTarget(fallo);
+        WriteExit(WD, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+        m_stv_lr_en_salida = false;
+        return;
+      }
+      if (!e || e->estado == 0)
+      {
+        if (WD != DISPATCHER_PC)
+          MOV(DISPATCHER_PC, WD);
+        ABI_CallFunction(&STVICAprender, js.compilerPC, DISPATCHER_PC);
+        FixupBranch invalidado = CBNZ(ARM64Reg::W0);
+        m_stv_lr_en_salida = inst.LK_3;
+        WriteExit(DISPATCHER_PC, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+        m_stv_lr_en_salida = false;
+        // El bloque quedo destruido: sin marco nuevo en la pila de BLR (y sin los viejos), por el despachador.
+        SetJumpTarget(invalidado);
+        if (inst.LK_3)
+        {
+          MOVI2R(ARM64Reg::W1, js.compilerPC + 4);
+          STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+        }
+        ResetStack();
+        Cleanup();
+        DoDownCount();
+        B(dispatcher);
+        return;
+      }
+    }
+    if (m_stv_volatil & 512)  // STV_GC_ICCUENTA_x (instrumento)
+    {
+      if (WD != DISPATCHER_PC)
+        MOV(DISPATCHER_PC, WD);
+      ABI_CallFunction(&STVICRegistrar, js.compilerPC, DISPATCHER_PC);
+      m_stv_lr_en_salida = inst.LK_3;
+      WriteExit(DISPATCHER_PC, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+      m_stv_lr_en_salida = false;
+      return;
+    }
+    m_stv_lr_en_salida = inst.LK_3;
+    WriteExit(WD, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+    m_stv_lr_en_salida = false;
+    return;
+  }
 
   // NPC = CTR & 0xfffffffc;
   gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
@@ -342,8 +462,17 @@ void JitArm64::bclrx(UGeckoInstruction inst)
           JumpIfCRFieldBit(inst.BI >> 2, 3 - (inst.BI & 3), !(inst.BO_2 & BO_BRANCH_IF_TRUE));
     }
 
-    LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
-    AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
+    // STV_GC_BASE2_x: con W26 fuera del pool, el destino va directo a DISPATCHER_PC (este es el camino que sale del
+    // bloque: pisar la segunda ranura de base no importa) y WriteBLRExit no copia.
+    const bool stv_dpc = (m_stv_volatil & 81920) == 81920 && !js.op->branchIsIdleLoop && !IsBranchWatchEnabled();
+    const ARM64Reg WL = stv_dpc ? DISPATCHER_PC : ARM64Reg(WA);
+    LDR(IndexType::Unsigned, WL, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+    // STV_GC_LLAMADA_x: con la pila de BLR, el AND va solo al camino de fallo (una direccion de retorno empujada siempre
+    // esta alineada: un LR desalineado falla la comparacion).
+    const bool stv_sin_and = (m_stv_volatil & 128) && m_enable_blr_optimization && !IsBranchWatchEnabled() &&
+                             !js.op->branchIsIdleLoop;
+    if (!stv_sin_and)
+      AND(WL, WL, LogicalImm(~0x3, GPRSize::B32));
 
     if (inst.LK)
     {
@@ -351,8 +480,11 @@ void JitArm64::bclrx(UGeckoInstruction inst)
       STR(IndexType::Unsigned, WB, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
 
-    gpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, WB);
-    fpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, ARM64Reg::INVALID_REG);
+    // STV_GC_VOLATIL_x: en el blr final los volatiles pueden estar descartados (ver PPCAnalyst).
+    const IgnoreDiscardedRegisters stv_ign =
+        (!conditional && (m_stv_volatil & 2)) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No;
+    gpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, WB, stv_ign);
+    fpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, ARM64Reg::INVALID_REG, stv_ign);
 
     if (IsBranchWatchEnabled())
     {
@@ -388,7 +520,9 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     }
     else
     {
-      WriteBLRExit(WA);
+      m_stv_blr_sin_and = stv_sin_and;
+      WriteBLRExit(WL);
+      m_stv_blr_sin_and = false;
     }
 
     if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)

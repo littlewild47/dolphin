@@ -13,6 +13,14 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/PowerPC/JitArm64/Jit.h"
+#include <unistd.h>
+#include <string>
+#include <cstdio>
+#include "Core/System.h"
+#include "Core/PowerPC/JitCommon/JitCache.h"
+#include "Core/PowerPC/JitCommon/JitBase.h"
+#include "Core/PowerPC/JitInterface.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
@@ -24,6 +32,8 @@
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
+#include <dirent.h>
+#include <sched.h>
 #endif
 
 PerformanceMetrics::PerformanceMetrics()
@@ -128,6 +138,40 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    // STV_GC_AFIN_x: debug.stv.gc.afin = 1 fija el hilo de CPU solo en cpu7 (un nucleo grande para el solo: sin
+    // migraciones que enfrien su L1i/L2) y todo el resto del proceso en cpu0-6, cada segundo (tambien los hilos nuevos,
+    // como los del driver de la GPU); 0 los suelta. Sin la propiedad manda [Core] STVAfinidad.
+    {
+      char af[PROP_VALUE_MAX] = {};
+      const bool hay = __system_property_get("debug.stv.gc.afin", af) > 0 && (af[0] == '0' || af[0] == '1');
+      const bool on = hay ? af[0] == '1' : Config::Get(Config::MAIN_STV_AFINIDAD);
+      static bool stv_af_prev = false;
+      const int cpu_tid = Core::g_stv_tid_cpu.load();
+      if ((on || stv_af_prev) && cpu_tid != 0)
+      {
+        if (DIR* d = opendir("/proc/self/task"))
+        {
+          while (dirent* e = readdir(d))
+          {
+            const int tid = atoi(e->d_name);
+            if (tid <= 0)
+              continue;
+            cpu_set_t m;
+            CPU_ZERO(&m);
+            for (int c = 0; c < 8; c++)
+            {
+              if (!on || (tid == cpu_tid ? c == 7 : c != 7))
+                CPU_SET(c, &m);
+            }
+            sched_setaffinity(tid, sizeof(m), &m);
+          }
+          closedir(d);
+        }
+        if (on != stv_af_prev)
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "afinidad: %s (cpu %d)", on ? "cpu7" : "suelta", cpu_tid);
+        stv_af_prev = on;
+      }
+    }
     {
       // STV_GC_FIFO_v1: debug.stv.gc.fifo = 0 vuelve al camino original de las rafagas del FIFO.
       char fv[PROP_VALUE_MAX] = {};
@@ -229,6 +273,132 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           stv_ce_prev = n;
           Config::SetCurrent(Config::MAIN_STV_CERO, n == 1);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: cero=%d", n);
+        }
+      }
+    }
+    // STV_GC_VOLATIL_x: debug.stv.gc.volatil = 0..511 (bits; 4 = STV_GC_SALTOINT_x, 8 = STV_GC_FCMP_x, 16 = STV_GC_CORTO_x, 32 = STV_GC_BLRCORTO_x, 64 = STV_GC_DIRUXTW_x, 128 = STV_GC_LLAMADA_x, 256 = STV_GC_FFFP_x; vacia la cache
+    // del JIT).
+    {
+      char vo[PROP_VALUE_MAX] = {};
+      static int stv_vo_prev = -1;
+      if (__system_property_get("debug.stv.gc.volatil", vo) > 0 && vo[0] >= '0' && vo[0] <= '9' &&
+          atoi(vo) <= 262143)
+      {
+        const int n = atoi(vo);
+        if (n != stv_vo_prev)
+        {
+          stv_vo_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_VOLATIL, n);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: volatil=%d", n);
+        }
+      }
+    }
+    // STV_GC_TRAZA_x (instrumento): debug.stv.gc.traza = "p<n>" prende el perfilado de bloques (modo depuracion +
+    // JitEnableProfiling: vacia la cache), "w<n>" pone los contadores en cero, "d<n>" escribe files/perf/traza-<pid>.tsv
+    // con una linea por bloque: direccion PPC, inicio y tamano del codigo cercano, tamano del lejano, ejecuciones (0 sin
+    // perfilado) y los destinos de sus salidas. Corre en el hilo de CPU.
+    {
+      char tz[PROP_VALUE_MAX] = {};
+      static std::string stv_tz_prev;
+      if (__system_property_get("debug.stv.gc.traza", tz) > 0 && stv_tz_prev != tz)
+      {
+        stv_tz_prev = tz;
+        auto& system = Core::System::GetInstance();
+        if (tz[0] == 'p')
+        {
+          Config::SetCurrent(Config::MAIN_ENABLE_DEBUGGING, true);
+          Config::SetCurrent(Config::MAIN_DEBUG_JIT_ENABLE_PROFILING, true);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: perfilado prendido");
+        }
+        else if (tz[0] == 'w')
+        {
+          const Core::CPUThreadGuard guard(system);
+          system.GetJitInterface().WipeBlockProfilingData(guard);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: contadores en cero");
+        }
+        else if (tz[0] == 'd')
+        {
+          const Core::CPUThreadGuard guard(system);
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/traza-{}.tsv", getpid());
+          JitBase* jit = static_cast<JitBase*>(system.GetJitInterface().GetCore());
+          std::FILE* f = std::fopen(ruta.c_str(), "w");
+          if (f && jit)
+          {
+            u64 n = 0;
+            jit->GetBlockCache()->RunOnBlocks(guard, [&](const JitBlock& b) {
+              std::fprintf(f, "%08x\t%llx\t%zu\t%zu\t%llu\t", b.effectiveAddress,
+                           (unsigned long long)(uintptr_t)b.near_begin, (size_t)(b.near_end - b.near_begin),
+                           (size_t)(b.far_end - b.far_begin),
+                           (unsigned long long)(b.profile_data ? b.profile_data->run_count : 0));
+              for (const auto& e : b.linkData)
+                std::fprintf(f, "%08x%s,", e.exitAddress, e.call ? "c" : "");
+              std::fputc('\n', f);
+              ++n;
+            });
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: %llu bloques en %s", (unsigned long long)n,
+                                ruta.c_str());
+          }
+          if (f)
+            std::fclose(f);
+        }
+      }
+    }
+    // STV_GC_TRAZA_x: FPSCR del juego (NI = bit 2) con las metricas.
+    {
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "fpscr=%08x ni=%d",
+                            Core::System::GetInstance().GetPPCState().fpscr.Hex,
+                            (int)Core::System::GetInstance().GetPPCState().fpscr.NI.Value());
+    }
+    // STV_GC_AUDITA_x (instrumento): debug.stv.gc.audita = "1" registra lo que emite el JIT por instruccion (desde la
+    // proxima compilacion; vacia el registro), "d<n>" lo escribe en files/perf/audita-<pid>.tsv.
+    {
+      char au[PROP_VALUE_MAX] = {};
+      static std::string stv_au_prev;
+      if (__system_property_get("debug.stv.gc.audita", au) > 0 && stv_au_prev != au)
+      {
+        stv_au_prev = au;
+        if (au[0] == '1')
+        {
+          g_stv_audita_bloques.clear();
+          g_stv_audita = true;
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "audita: registrando");
+        }
+        else if (au[0] == 'd')
+        {
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/audita-{}.tsv", getpid());
+          if (std::FILE* f = std::fopen(ruta.c_str(), "w"))
+          {
+            u64 n = 0;
+            for (const auto& [blq, ops] : g_stv_audita_bloques)
+              for (const auto& e : ops)
+              {
+                std::fprintf(f, "%08x\t%08x\t%08x\t%s\t%u\t%u\n", blq, e.pc, e.hex, e.nombre, e.cerca, e.lejos);
+                ++n;
+              }
+            std::fclose(f);
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "audita: %llu lineas en %s", (unsigned long long)n,
+                                ruta.c_str());
+          }
+        }
+      }
+    }
+    // STV_GC_ICCUENTA_x (instrumento): debug.stv.gc.iccuenta = "d<n>" vuelca files/perf/ic-<pid>.tsv y vacia la cuenta.
+    {
+      char ic[PROP_VALUE_MAX] = {};
+      static std::string stv_ic_prev;
+      if (__system_property_get("debug.stv.gc.iccuenta", ic) > 0 && stv_ic_prev != ic)
+      {
+        stv_ic_prev = ic;
+        if (ic[0] == 'd')
+        {
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/ic-{}.tsv", getpid());
+          STVICVolcar(ruta.c_str());
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "iccuenta: %s", ruta.c_str());
         }
       }
     }

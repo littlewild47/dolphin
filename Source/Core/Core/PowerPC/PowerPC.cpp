@@ -30,6 +30,8 @@
 #include "Core/PowerPC/PPCSymbolDB.h"
 #include "Core/System.h"
 
+bool g_stv_ff_fp = false;  // STV_GC_FFFP_x (declarada en Gekko.h)
+
 namespace PowerPC
 {
 double PairedSingle::PS0AsDouble() const
@@ -676,7 +678,8 @@ void PowerPCManager::MSRUpdated()
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
 
   m_ppc_state.feature_flags = static_cast<CPUEmuFeatureFlags>(
-      (m_ppc_state.feature_flags & FEATURE_FLAG_PERFMON) | ((m_ppc_state.msr.Hex >> 4) & 0x3));
+      (m_ppc_state.feature_flags & FEATURE_FLAG_PERFMON) | ((m_ppc_state.msr.Hex >> 4) & 0x3) |
+      ((g_stv_ff_fp && m_ppc_state.msr.FP) ? STV_FEATURE_FLAG_MSR_FP : 0));  // STV_GC_FFFP_x
 
   if (m_ppc_state.msr.DR && m_ppc_state.pagetable_update_pending)
     m_system.GetMMU().PageTableUpdated();
@@ -719,8 +722,9 @@ void RecalculateAllFeatureFlags(PowerPCState& ppc_state)
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
 
   const bool perfmon = ppc_state.spr[SPR_MMCR0] || ppc_state.spr[SPR_MMCR1];
-  ppc_state.feature_flags = static_cast<CPUEmuFeatureFlags>(((ppc_state.msr.Hex >> 4) & 0x3) |
-                                                            (perfmon ? FEATURE_FLAG_PERFMON : 0));
+  ppc_state.feature_flags = static_cast<CPUEmuFeatureFlags>(
+      ((ppc_state.msr.Hex >> 4) & 0x3) | (perfmon ? FEATURE_FLAG_PERFMON : 0) |
+      ((g_stv_ff_fp && ppc_state.msr.FP) ? STV_FEATURE_FLAG_MSR_FP : 0));  // STV_GC_FFFP_x
 }
 
 void CheckExceptionsFromJIT(PowerPCManager& power_pc)

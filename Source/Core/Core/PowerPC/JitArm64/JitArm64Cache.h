@@ -31,6 +31,9 @@ public:
 
   static constexpr size_t BLOCK_LINK_SIZE = 3 * sizeof(u32);
   static constexpr size_t BLOCK_LINK_FAST_BL_OFFSET = BLOCK_LINK_SIZE - sizeof(u32);
+  // STV_GC_CORTO_x
+  static constexpr size_t STV_ENLACE_CORTO = sizeof(u32);
+  static size_t STVTamEnlace(bool corto) { return corto ? STV_ENLACE_CORTO : BLOCK_LINK_SIZE; }
 
 private:
   void WriteLinkBlock(const JitBlock::LinkData& source, const JitBlock* dest) override;

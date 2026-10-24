@@ -118,7 +118,7 @@ static std::string_view GetDescription(const CPUEmuFeatureFlags flags)
       descriptions = {
           "", "DR", "IR", "DR|IR", "PERFMON", "DR|PERFMON", "IR|PERFMON", "DR|IR|PERFMON",
       };
-  return descriptions[flags];
+  return descriptions[flags & 0x7];  // STV_GC_FFFP_x: el bit de MSR.FP no se nombra
 }
 
 void JitInterface::JitBlockLogDump(const Core::CPUThreadGuard& guard, std::FILE* file) const

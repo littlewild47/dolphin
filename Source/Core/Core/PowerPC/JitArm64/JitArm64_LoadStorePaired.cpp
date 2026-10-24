@@ -55,7 +55,13 @@ void JitArm64::psq_lXX(UGeckoInstruction inst)
   constexpr ARM64Reg scale_reg = ARM64Reg::W2;
   ARM64Reg VS = fpr.RW(inst.RS, RegType::Single, false);
 
-  if (inst.RA || update)  // Always uses the register on update
+  // STV_GC_BASEPSQ_x (bit 131072, con la base): pares de flotantes sin cuantizar por [X25/X26, #desp].
+  const bool stv_psq_base = (m_stv_volatil & 131072) && js.assumeNoPairedQuantize && inst.RA && !indexed &&
+                            !update && STVBasePreparar(inst.RA, gpr.R(inst.RA), offset, w ? 4 : 8, false);
+  if (stv_psq_base)
+  {
+  }
+  else if (inst.RA || update)  // Always uses the register on update
   {
     if (indexed)
       ADD(addr_reg, gpr.R(inst.RA), gpr.R(inst.RB));
@@ -95,8 +101,8 @@ void JitArm64::psq_lXX(UGeckoInstruction inst)
     if (!w)
       flags |= BackPatchInfo::FLAG_PAIR;
 
-    EmitBackpatchRoutine(flags, MemAccessMode::Auto, VS, EncodeRegTo64(addr_reg), gprs_in_use,
-                         fprs_in_use);
+    EmitBackpatchRoutine(flags, MemAccessMode::Auto, VS,
+                         stv_psq_base ? m_stv_base_reg : EncodeRegTo64(addr_reg), gprs_in_use, fprs_in_use);
   }
   else if (js.constantGqrValid[i] && ((js.constantGqr[i] >> 16) & 7) != 1 &&
            ((js.constantGqr[i] >> 16) & 7) != 2 && ((js.constantGqr[i] >> 16) & 7) != 3)
@@ -278,7 +284,13 @@ void JitArm64::psq_stXX(UGeckoInstruction inst)
   constexpr ARM64Reg scale_reg = ARM64Reg::W1;
   constexpr ARM64Reg addr_reg = ARM64Reg::W2;
 
-  if (inst.RA || update)  // Always uses the register on update
+  // STV_GC_BASEPSQ_x (bit 131072, con la base): pares de flotantes sin cuantizar por [X25/X26, #desp].
+  const bool stv_psq_base = (m_stv_volatil & 131072) && js.assumeNoPairedQuantize && inst.RA && !indexed &&
+                            !update && STVBasePreparar(inst.RA, gpr.R(inst.RA), offset, w ? 4 : 8, false);
+  if (stv_psq_base)
+  {
+  }
+  else if (inst.RA || update)  // Always uses the register on update
   {
     if (indexed)
       ADD(addr_reg, gpr.R(inst.RA), gpr.R(inst.RB));
@@ -316,8 +328,8 @@ void JitArm64::psq_stXX(UGeckoInstruction inst)
     if (!w)
       flags |= BackPatchInfo::FLAG_PAIR;
 
-    EmitBackpatchRoutine(flags, MemAccessMode::Auto, VS, EncodeRegTo64(addr_reg), gprs_in_use,
-                         fprs_in_use);
+    EmitBackpatchRoutine(flags, MemAccessMode::Auto, VS,
+                         stv_psq_base ? m_stv_base_reg : EncodeRegTo64(addr_reg), gprs_in_use, fprs_in_use);
   }
   else
   {

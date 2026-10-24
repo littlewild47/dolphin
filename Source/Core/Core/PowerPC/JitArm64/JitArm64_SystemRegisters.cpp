@@ -470,6 +470,29 @@ void JitArm64::mfspr(UGeckoInstruction inst)
         else
           LSR(EncodeRegTo64(gpr.R(n)), Xresult, 32);
 
+        // STV_GC_TB3_x (bit 8192): OSGetTime lee mftbu, mftb, mftbu seguidos y compara las dos mitades altas. Dentro del
+        // bloque, sin instrucciones en el medio, el downcount no cambia: el tercero da lo mismo y se toma del resultado.
+        if ((m_stv_volatil & 8192) && CanMergeNextInstructions(2))
+        {
+          const UGeckoInstruction& third = js.op[2].inst;
+          const u32 thirdIndex = (third.SPRU << 5) | (third.SPRL & 0x1F);
+          const int t = third.RD;
+          if (third.OPCD == 31 && third.SUBOP10 == 371 && (thirdIndex == SPR_TU || thirdIndex == SPR_TL) &&
+              t != d && t != n)
+          {
+            js.downcountAmount++;
+            js.skipInstructions = 2;
+            // El fin de instruccion usa los descartables de la PRIMERA: ahi n y t figuran muertos (se escriben antes de
+            // leerse) y se perderian; con r3/r4 no pasaba porque son fijos (el descarte los ignora).
+            js.op->gprDiscardable[n] = false;
+            js.op->gprDiscardable[t] = false;
+            gpr.BindToRegister(t, false);
+            if (thirdIndex == SPR_TL)
+              MOV(gpr.R(t), Wresult);
+            else
+              LSR(EncodeRegTo64(gpr.R(t)), Xresult, 32);
+          }
+        }
         break;
       }
     }

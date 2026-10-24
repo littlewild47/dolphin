@@ -93,6 +93,9 @@ struct JitBlock : public JitBlockData
     u8* exitPtrs;  // to be able to rewrite the exit jump
 #ifdef _M_ARM_64
     const u8* exitFarcode;
+    // STV_GC_CORTO_x: salida hacia adelante (destino > inicio del bloque): una sola instruccion, sin chequeo de
+    // downcount (lo hacen las salidas hacia atras y el despachador).
+    bool stv_corto = false;
 #endif
     u32 exitAddress;
     bool linkStatus;  // is it already linked?
@@ -147,7 +150,7 @@ class JitBaseBlockCache
 public:
   // The size of the fast map is determined like this:
   // ((4 GiB guest memory space) / (4-byte alignment) * sizeof(JitBlock*)) << (3 feature flag bits)
-  static constexpr u64 FAST_BLOCK_MAP_SIZE = 0x10'0000'0000;
+  static constexpr u64 FAST_BLOCK_MAP_SIZE = 0x20'0000'0000;  // STV_GC_FFFP_x: un bit mas de banderas
   static constexpr u32 FAST_BLOCK_MAP_FALLBACK_ELEMENTS = 0x10000;
   static constexpr u32 FAST_BLOCK_MAP_FALLBACK_MASK = FAST_BLOCK_MAP_FALLBACK_ELEMENTS - 1;
 

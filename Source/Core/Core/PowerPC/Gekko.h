@@ -942,6 +942,12 @@ enum CPUEmuFeatureFlags : u32
   FEATURE_FLAG_END_OF_ENUMERATION,
 };
 
+// STV_GC_FFFP_x (bit 256 de debug.stv.gc.volatil): MSR.FP como bandera de bloque. Cada bloque se compila para un valor
+// de MSR.FP (como DR/IR) y el JIT no repite el chequeo de "FPU no disponible" al entrar a cada bloque con punto flotante.
+constexpr u32 STV_FEATURE_FLAG_MSR_FP = 1 << 3;
+extern bool g_stv_ff_fp;
+
+
 constexpr s32 SignExt16(s16 x)
 {
   return (s32)x;
