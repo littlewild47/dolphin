@@ -3,6 +3,11 @@
 
 #include "VideoBackends/Vulkan/StagingBuffer.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
+
 #include <cstring>
 
 #include "Common/Assert.h"
@@ -146,7 +151,21 @@ bool StagingBuffer::AllocateBuffer(STAGING_BUFFER_TYPE type, VkDeviceSize size,
   alloc_create_info.preferredFlags = 0;
   alloc_create_info.requiredFlags = 0;
 
-  if (DriverDetails::HasBug(DriverDetails::BUG_SLOW_CACHED_READBACK_MEMORY)) [[unlikely]]
+  // STV_GC_RBCACHE_v1: BUG_SLOW_CACHED_READBACK_MEMORY obliga en toda GPU ARM a leer de memoria coherente SIN cache
+  // (tipo 0 en la Mali-G57 de la consola). Leer con memcpy de ahi es lentisimo: las copias del EFB a la RAM (1,3 MB
+  // por copia en Wind Waker) eran ~8 % del hilo de video, en la cola de cada cuadro que el hilo de CPU espera. En esta
+  // Mali la memoria con cache (tipo 1, no coherente) es la correcta para leer: InvalidateCPUCache (lecturas) y
+  // FlushCPUCache (texturas intermedias mutables) ya hacen el mantenimiento. Wind Waker 22,9 -> 24,2 FPS (3 de 3).
+  // Solo los buferes de LECTURA; debug.stv.gc.rbcache=0 (leida al crear el bufer) vuelve a la regla de ARM.
+  bool stv_rbcache = type == STAGING_BUFFER_TYPE_READBACK;
+#ifdef __ANDROID__
+  {
+    char rb[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.rbcache", rb) > 0 && rb[0] == '0')
+      stv_rbcache = false;
+  }
+#endif
+  if (DriverDetails::HasBug(DriverDetails::BUG_SLOW_CACHED_READBACK_MEMORY) && !stv_rbcache) [[unlikely]]
   {
     // If there is no memory type that is both CACHED and COHERENT,
     // pick the one that is COHERENT
@@ -189,6 +208,18 @@ bool StagingBuffer::AllocateBuffer(STAGING_BUFFER_TYPE type, VkDeviceSize size,
 
   VkMemoryPropertyFlags flags = 0;
   vmaGetAllocationMemoryProperties(g_vulkan_context->GetMemoryAllocator(), *out_alloc, &flags);
+#ifdef __ANDROID__
+  // STV_GC_RBCACHE_v1: que tipo de memoria toco de verdad (instrumento; pocas lineas por partida).
+  if (type == STAGING_BUFFER_TYPE_READBACK)
+  {
+    __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                        "staging lectura: %llu B tipo=%u cached=%d coherent=%d device=%d (rbcache=%d)",
+                        static_cast<unsigned long long>(size), alloc_info.memoryType,
+                        (flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? 1 : 0,
+                        (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? 1 : 0,
+                        (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? 1 : 0, stv_rbcache ? 1 : 0);
+  }
+#endif
   return true;
 }
 
