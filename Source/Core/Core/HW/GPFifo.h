@@ -33,6 +33,7 @@ public:
   // ResetGatherPipe
   void ResetGatherPipe();
   void UpdateGatherPipe();
+  void STVAnotar();  // STV_GC_FIFOREG_v1
   void CheckGatherPipe();
   void FastCheckGatherPipe();
 

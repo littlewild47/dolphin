@@ -98,6 +98,7 @@ public:
   };
   void CompileExceptionCheck(ExceptionType type);
   static void CompileExceptionCheckFromJIT(JitInterface& jit_interface, ExceptionType type);
+  bool STVFifoReg() const;  // STV_GC_FIFOREG_v1
 
   /// used for the page fault unit test, don't use outside of tests!
   void SetJit(std::unique_ptr<JitBase> jit);

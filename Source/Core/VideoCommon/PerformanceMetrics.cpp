@@ -183,6 +183,21 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_FIFOREG_v1: debug.stv.gc.fiforeg = 0|1 (tabla de ajustes del JIT: vacia la cache).
+    {
+      char fr[PROP_VALUE_MAX] = {};
+      static int stv_fr_prev = -1;
+      if (__system_property_get("debug.stv.gc.fiforeg", fr) > 0 && (fr[0] == '0' || fr[0] == '1'))
+      {
+        const int n = fr[0] - '0';
+        if (n != stv_fr_prev)
+        {
+          stv_fr_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_FIFO_REG, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: fiforeg=%d", n);
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {

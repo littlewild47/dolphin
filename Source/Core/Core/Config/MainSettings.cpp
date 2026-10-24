@@ -54,6 +54,8 @@ const Info<bool> MAIN_STV_DOWNCOUNT_REG{{System::Main, "Core", "STVDowncountReg"
 const Info<int> MAIN_STV_GPR_FIJOS{{System::Main, "Core", "STVGprFijos"}, 1};
 // STV_GC_BLRFIX_v1: ver Jit.cpp (WriteExit con destino en registro).
 const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
+// STV_GC_FIFOREG_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO con la direccion en un registro).
+const Info<bool> MAIN_STV_FIFO_REG{{System::Main, "Core", "STVFifoReg"}, true};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};

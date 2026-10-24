@@ -349,6 +349,11 @@ void JitInterface::CompileExceptionCheck(ExceptionType type)
   }
 }
 
+bool JitInterface::STVFifoReg() const
+{
+  return m_jit && m_jit->m_stv_fifo_reg;
+}
+
 void JitInterface::CompileExceptionCheckFromJIT(JitInterface& jit_interface, ExceptionType type)
 {
   jit_interface.CompileExceptionCheck(type);

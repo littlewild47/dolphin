@@ -130,27 +130,39 @@ void GPFifoManager::CheckGatherPipe()
   }
 }
 
+// STV_GC_FIFOREG_v1: con la valvula, toda escritura lenta al FIFO se anota en js.fifoWriteAddresses (no solo la que
+// cruza los 32 bytes): asi el JIT recompila esa instruccion con el camino rapido y no vuelve por aca.
+void GPFifoManager::STVAnotar()
+{
+  if (m_system.GetJitInterface().STVFifoReg())
+    m_system.GetJitInterface().CompileExceptionCheck(JitInterface::ExceptionType::FIFOWrite);
+}
+
 void GPFifoManager::Write8(const u8 value)
 {
   FastWrite8(value);
+  STVAnotar();
   CheckGatherPipe();
 }
 
 void GPFifoManager::Write16(const u16 value)
 {
   FastWrite16(value);
+  STVAnotar();
   CheckGatherPipe();
 }
 
 void GPFifoManager::Write32(const u32 value)
 {
   FastWrite32(value);
+  STVAnotar();
   CheckGatherPipe();
 }
 
 void GPFifoManager::Write64(const u64 value)
 {
   FastWrite64(value);
+  STVAnotar();
   CheckGatherPipe();
 }
 
