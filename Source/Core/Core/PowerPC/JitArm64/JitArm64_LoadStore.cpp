@@ -735,18 +735,22 @@ void JitArm64::dcbx(UGeckoInstruction inst)
 
     const auto reg_cycle_count = gpr.GetScopedReg();
     const auto reg_downcount = gpr.GetScopedReg();
+    // STV_GC_JITDC_v1: con la valvula el downcount vivo esta en W27: se lee y se descuenta ahi, sin LDR/STR.
+    const bool stv_dc = STVDcReg();
+    const ARM64Reg dc = stv_dc ? DOWNCOUNT_REG : ARM64Reg(reg_downcount);
 
     // Figure out how many loops we want to do.
     const u8 cycle_count_per_loop =
         js.op[0].opinfo->num_cycles + js.op[1].opinfo->num_cycles + js.op[2].opinfo->num_cycles;
 
-    LDR(IndexType::Unsigned, reg_downcount, PPC_REG, PPCSTATE_OFF(downcount));
+    if (!stv_dc)
+      LDR(IndexType::Unsigned, dc, PPC_REG, PPCSTATE_OFF(downcount));
     MOVI2R(WA, 0);
-    CMP(reg_downcount, 0);                                          // if (downcount <= 0)
+    CMP(dc, 0);                                                    // if (downcount <= 0)
     FixupBranch downcount_is_zero_or_negative = B(CCFlags::CC_LE);  // only do 1 invalidation; else:
     LDR(IndexType::Unsigned, loop_counter, PPC_REG, PPCSTATE_OFF_SPR(SPR_CTR));
     MOVI2R(reg_cycle_count, cycle_count_per_loop);
-    SDIV(WB, reg_downcount, reg_cycle_count);  // WB = downcount / cycle_count
+    SDIV(WB, dc, reg_cycle_count);             // WB = downcount / cycle_count
     SUB(WA, loop_counter, 1);                  // WA = CTR - 1
     // ^ Note that this CTR-1 implicitly handles the CTR == 0 case correctly.
     CMP(WB, WA);
@@ -761,9 +765,10 @@ void JitArm64::dcbx(UGeckoInstruction inst)
     STR(IndexType::Unsigned, loop_counter, PPC_REG, PPCSTATE_OFF_SPR(SPR_CTR));
 
     // downcount -= (WA * reg_cycle_count)
-    MSUB(reg_downcount, WA, reg_cycle_count, reg_downcount);
+    MSUB(dc, WA, reg_cycle_count, dc);
     // ^ Note that this cannot overflow because it's limited by (downcount/cycle_count).
-    STR(IndexType::Unsigned, reg_downcount, PPC_REG, PPCSTATE_OFF(downcount));
+    if (!stv_dc)
+      STR(IndexType::Unsigned, dc, PPC_REG, PPCSTATE_OFF(downcount));
 
     SetJumpTarget(downcount_is_zero_or_negative);
 

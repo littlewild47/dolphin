@@ -61,6 +61,8 @@ extern const Info<bool> MAIN_PAGE_TABLE_FASTMEM;
 extern const Info<bool> MAIN_FASTMEM_ARENA;
 extern const Info<bool> MAIN_LARGE_ENTRY_POINTS_MAP;
 extern const Info<bool> MAIN_ACCURATE_CPU_CACHE;
+// STV_GC_JITDC_v1: el contador de ciclos del JIT ARM64 en un registro fijo (W27).
+extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;
