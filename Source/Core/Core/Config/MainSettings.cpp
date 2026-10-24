@@ -52,6 +52,8 @@ const Info<bool> MAIN_ACCURATE_CPU_CACHE{{System::Main, "Core", "AccurateCPUCach
 const Info<bool> MAIN_STV_DOWNCOUNT_REG{{System::Main, "Core", "STVDowncountReg"}, true};
 // STV_GC_JITGF_v1: 0 = apagada, 1 = seis GPR fijos, 2 = fijos + verificacion. Por defecto 1 (Twilight Princess +3 %).
 const Info<int> MAIN_STV_GPR_FIJOS{{System::Main, "Core", "STVGprFijos"}, 1};
+// STV_GC_BLRFIX_v1: ver Jit.cpp (WriteExit con destino en registro).
+const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};

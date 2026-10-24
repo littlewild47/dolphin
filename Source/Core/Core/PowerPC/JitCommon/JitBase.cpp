@@ -62,7 +62,7 @@
 // After resetting the stack to the top, we call _resetstkoflw() to restore
 // the guard page at the 256kb mark.
 
-const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JitBase::JIT_SETTINGS{{
+const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 27> JitBase::JIT_SETTINGS{{
     {&JitBase::bJITOff, &Config::MAIN_DEBUG_JIT_OFF},
     {&JitBase::bJITLoadStoreOff, &Config::MAIN_DEBUG_JIT_LOAD_STORE_OFF},
     {&JitBase::bJITLoadStorelXzOff, &Config::MAIN_DEBUG_JIT_LOAD_STORE_LXZ_OFF},
@@ -90,6 +90,8 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JitB
     {&JitBase::m_accurate_cpu_cache_enabled, &Config::MAIN_ACCURATE_CPU_CACHE},
     // STV_GC_JITDC_v1: el downcount en W27 (solo lo usa JitArm64).
     {&JitBase::m_stv_dc_reg, &Config::MAIN_STV_DOWNCOUNT_REG},
+    // STV_GC_BLRFIX_v1
+    {&JitBase::m_stv_blr_fix, &Config::MAIN_STV_BLR_FIX},
 }};
 
 const u8* JitBase::Dispatch(JitBase& jit)
