@@ -232,6 +232,21 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_CEROCERCA_v1: debug.stv.gc.cerocerca = 0|1 (tabla de ajustes del JIT: vacia la cache).
+    {
+      char cc[PROP_VALUE_MAX] = {};
+      static int stv_cc_prev = -1;
+      if (__system_property_get("debug.stv.gc.cerocerca", cc) > 0 && (cc[0] == '0' || cc[0] == '1'))
+      {
+        const int n = cc[0] - '0';
+        if (n != stv_cc_prev)
+        {
+          stv_cc_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_CERO_CERCA, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: cerocerca=%d", n);
+        }
+      }
+    }
     // STV_GC_FIFOREG_v1: debug.stv.gc.fiforeg = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char fr[PROP_VALUE_MAX] = {};
