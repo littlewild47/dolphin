@@ -166,6 +166,7 @@ struct TCacheEntry
   std::unique_ptr<AbstractStagingTexture> pending_efb_copy;
   u32 pending_efb_copy_width = 0;
   u32 pending_efb_copy_height = 0;
+  bool stv_recurrente = false;  // STV_GC_EFBASYNC_v1
 
   std::string texture_info_name = "";
 
@@ -295,7 +296,8 @@ public:
   void ScaleTextureCacheEntryTo(RcTcacheEntry& entry, u32 new_width, u32 new_height);
 
   // Flushes all pending EFB copies to emulated RAM.
-  void FlushEFBCopies();
+  void FlushEFBCopies(int stv_motivo = 3);  // STV_GC_EFBASYNC_v1: 0 DrawDone, 1 token, 2 token int, 3 otro, 4 fin de cuadro
+  void StvSondearEnVuelo();                 // STV_GC_EFBASYNC_v1
 
   // Flush any Bound textures that can't be reused
   void FlushStaleBinds();
@@ -465,6 +467,9 @@ private:
   // so that overlapping textures are written to guest RAM in the order they are issued.
   // It's valid for textures to live be in here after they've been invalidated
   std::vector<RcTcacheEntry> m_pending_efb_copies;
+  // STV_GC_EFBASYNC_v1: copias a RAM ya enviadas a la GPU, en orden, cuyo vaciado espera a que terminen.
+  std::vector<RcTcacheEntry> m_stv_en_vuelo;
+  void StvCompletarEnVuelo(bool forzar_todo);
 
   // Staging texture used for readbacks.
   // We store this in the class so that the same staging texture can be used for multiple

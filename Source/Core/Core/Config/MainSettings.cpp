@@ -65,6 +65,8 @@ const Info<bool> MAIN_STV_CERO_CERCA{{System::Main, "Core", "STVCeroCerca"}, tru
 // BASE2, BASEPSQ); debug.stv.gc.volatil la pisa para medir.
 const Info<int> MAIN_STV_VOLATIL{{System::Main, "Core", "STVVolatil"}, 258207};
 const Info<bool> MAIN_STV_AFINIDAD{{System::Main, "Core", "STVAfinidad"}, true};  // STV_GC_AFIN_x
+// STV_GC_EFBASYNC_v1: ver TextureCacheBase.cpp (copias del EFB a RAM recurrentes sin esperar a la GPU). Por juego.
+const Info<bool> MAIN_STV_EFB_ASYNC{{System::Main, "Core", "STVEfbAsync"}, false};
 // STV_GC_FIFORUT_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO desde las rutinas cuantizadas).
 const Info<bool> MAIN_STV_FIFO_RUT{{System::Main, "Core", "STVFifoRutina"}, true};
 // STV_GC_GQR_v1: ver JitArm64_LoadStorePaired.cpp (psq_l con el GQR constante en el bloque, en linea).

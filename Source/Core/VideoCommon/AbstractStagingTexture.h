@@ -67,6 +67,10 @@ public:
   // call to CopyFromTexture()/CopyToTexture() and the Flush() call.
   virtual void Flush() = 0;
 
+  // STV_GC_EFBASYNC_v1: true si la copia ya termino en la GPU y Flush() no esperaria (sin bloquear). Un backend que no
+  // sabe contestar dice false y la copia se vacia como siempre.
+  virtual bool StvListoSinEsperar() { return false; }
+
   // Reads the specified rectangle from the staging texture to out_ptr, with the specified stride
   // (length in bytes of each row). CopyFromTexture must be called first. The contents of any
   // texels outside of the rectangle used for CopyFromTexture is undefined.

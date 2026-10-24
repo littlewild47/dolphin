@@ -1032,6 +1032,16 @@ void VKStagingTexture::Unmap()
   // Always mapped.
 }
 
+// STV_GC_EFBASYNC_v1: la copia esta en un bufer de comandos ya enviado y su valla ya se senalo (vkGetFenceStatus).
+bool VKStagingTexture::StvListoSinEsperar()
+{
+  if (!m_needs_flush)
+    return true;
+  if (g_command_buffer_mgr->GetCurrentFenceCounter() == m_flush_fence_counter)
+    return false;
+  return g_command_buffer_mgr->StvFenceListo(m_flush_fence_counter);
+}
+
 void VKStagingTexture::Flush()
 {
   if (!m_needs_flush)

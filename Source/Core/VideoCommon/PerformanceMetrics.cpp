@@ -69,6 +69,8 @@ extern bool g_stv_fifo_lote;    // STV_GC_FIFO3_v1
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
+extern std::atomic<bool> g_stv_efbasync;  // STV_GC_EFBASYNC_v1 (TextureCacheBase.cpp)
+extern std::atomic<u32> g_stv_efb_ram, g_stv_efb_async_n, g_stv_efb_forzadas, g_stv_efb_sync_n, g_stv_efb_espera_us;
 static TimePoint s_stv_ultimo_cuadro{};
 
 void PerformanceMetrics::CountFrame()
@@ -507,6 +509,26 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_EFBASYNC_v1: debug.stv.gc.efbasync = 0|1 pisa [Core] STVEfbAsync. Con las metricas, una linea por segundo
+    // con las copias a RAM, las vaciadas sin esperar (en vuelo), las sincronicas, las forzadas y la espera.
+    {
+      char ea[PROP_VALUE_MAX] = {};
+      const bool hay = __system_property_get("debug.stv.gc.efbasync", ea) > 0 && (ea[0] == '0' || ea[0] == '1');
+      const bool on = hay ? ea[0] == '1' : Config::Get(Config::MAIN_STV_EFB_ASYNC);
+      if (on != g_stv_efbasync.load(std::memory_order_relaxed))
+      {
+        g_stv_efbasync.store(on, std::memory_order_relaxed);
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "efb: async=%d", on ? 1 : 0);
+      }
+      const u32 ra = g_stv_efb_ram.exchange(0), an = g_stv_efb_async_n.exchange(0),
+                fz = g_stv_efb_forzadas.exchange(0), sn = g_stv_efb_sync_n.exchange(0),
+                us = g_stv_efb_espera_us.exchange(0);
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "efb: ram=%u/s en_vuelo=%u sincronicas=%u forzadas=%u espera=%.1fms/s async=%d", ra, an,
+                            sn, fz, us / 1000.0, on ? 1 : 0);
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')

@@ -183,7 +183,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     case 0x02:
     {
       INCSTAT(g_stats.this_frame.num_draw_done);
-      g_texture_cache->FlushEFBCopies();
+      g_texture_cache->FlushEFBCopies(0);  // STV_GC_EFBASYNC_v1
       g_texture_cache->FlushStaleBinds();
       g_framebuffer_manager->InvalidatePeekCache(false);
       g_framebuffer_manager->RefreshPeekCache();
@@ -202,7 +202,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
   case BPMEM_PE_TOKEN_ID:  // Pixel Engine Token ID
   {
     INCSTAT(g_stats.this_frame.num_token);
-    g_texture_cache->FlushEFBCopies();
+    g_texture_cache->FlushEFBCopies(1);  // STV_GC_EFBASYNC_v1
     g_texture_cache->FlushStaleBinds();
     g_framebuffer_manager->InvalidatePeekCache(false);
     g_framebuffer_manager->RefreshPeekCache();
@@ -218,7 +218,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
   case BPMEM_PE_TOKEN_INT_ID:  // Pixel Engine Interrupt Token ID
   {
     INCSTAT(g_stats.this_frame.num_token_int);
-    g_texture_cache->FlushEFBCopies();
+    g_texture_cache->FlushEFBCopies(2);  // STV_GC_EFBASYNC_v1
     g_texture_cache->FlushStaleBinds();
     g_framebuffer_manager->InvalidatePeekCache(false);
     g_framebuffer_manager->RefreshPeekCache();
