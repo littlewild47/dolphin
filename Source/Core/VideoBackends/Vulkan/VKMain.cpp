@@ -11,6 +11,7 @@
 #include "VideoBackends/Vulkan/StateTracker.h"
 #include "VideoBackends/Vulkan/VKBoundingBox.h"
 #include "VideoBackends/Vulkan/VKGfx.h"
+#include "VideoBackends/Vulkan/VKGrabador.h"
 #include "VideoBackends/Vulkan/VKPerfQuery.h"
 #include "VideoBackends/Vulkan/VKSwapChain.h"
 #include "VideoBackends/Vulkan/VKVertexManager.h"
@@ -248,6 +249,8 @@ void VideoBackend::Shutdown()
 
   g_object_cache.reset();
   StateTracker::DestroyInstance();
+  // STV_GC_GRABADOR_v1: vacia, devuelve los punteros reales y termina el hilo antes de liberar pools y dispositivo.
+  Grabador::Terminar();
   g_command_buffer_mgr.reset();
   g_vulkan_context.reset();
   UnloadVulkanLibrary();

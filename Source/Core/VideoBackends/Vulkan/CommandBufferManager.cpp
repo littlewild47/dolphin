@@ -9,6 +9,7 @@
 #include "Common/Assert.h"
 #include "Common/MsgHandler.h"
 
+#include "VideoBackends/Vulkan/VKGrabador.h"
 #include "VideoBackends/Vulkan/VulkanContext.h"
 #include "VideoCommon/Constants.h"
 #include "vulkan/vulkan_core.h"
@@ -242,6 +243,9 @@ bool CommandBufferManager::CreateSubmitThread()
 
 void CommandBufferManager::WaitForWorkerThreadIdle()
 {
+  // STV_GC_GRABADOR_v1: primero que el grabador termine lo encolado (incluidos los envios que empuja al hilo de
+  // envio); recien entonces el hilo de envio puede quedar ocioso de verdad.
+  Grabador::Vaciar();
   if (!m_use_threaded_submission)
     return;
 
@@ -297,9 +301,12 @@ void CommandBufferManager::WaitForCommandBufferCompletion(u32 index)
 
     if (cleanup_resources.fence_counter > m_completed_fence_counter)
     {
+      // STV_GC_GRABADOR_v1: despues de la valla, ningun comando pendiente usa estos objetos: no hace falta vaciar.
+      Grabador::g_limpieza = true;
       for (auto& it : cleanup_resources.cleanup_resources)
         it();
       cleanup_resources.cleanup_resources.clear();
+      Grabador::g_limpieza = false;
     }
 
     cleanup_index = (cleanup_index + 1) % NUM_COMMAND_BUFFERS;
@@ -331,7 +338,13 @@ void CommandBufferManager::SubmitCommandBuffer(bool submit_on_worker_thread,
   {
     resources.waiting_for_submit.store(true, std::memory_order_relaxed);
     // Push to the pending submit queue.
-    m_submit_thread.Push({present_swap_chain, present_image_index, m_current_cmd_buffer});
+    // STV_GC_GRABADOR_v1: con el grabador, el envio va por el anillo (detras del vkEndCommandBuffer del mismo
+    // bufer) y lo empuja el grabador; el hilo de envio tiene un solo productor por vez.
+    const PendingCommandBufferSubmit envio{present_swap_chain, present_image_index, m_current_cmd_buffer};
+    if (Grabador::Difiere())
+      Grabador::Encolar([this, envio] { m_submit_thread.Push(envio); });
+    else
+      m_submit_thread.Push(envio);
   }
   else
   {
@@ -473,6 +486,9 @@ void CommandBufferManager::SubmitCommandBuffer(u32 command_buffer_index,
 
 void CommandBufferManager::BeginCommandBuffer()
 {
+  // STV_GC_GRABADOR_v1: la valvula debug.stv.gc.grabador se relee entre buferes (cada 30).
+  Grabador::Releer();
+
   // Move to the next command buffer.
   const u32 next_buffer_index = (m_current_cmd_buffer + 1) % NUM_COMMAND_BUFFERS;
   CmdBufferResources& resources = m_command_buffers[next_buffer_index];
