@@ -48,6 +48,10 @@ void PerformanceMetrics::Reset()
 
 // STV_GC_METRICAS: cuadro mas largo y cuadros de mas de 50 ms desde la ultima linea (los tirones que el promedio
 // por segundo esconde). CountFrame corre en el hilo de video; la linea la escribe el hilo de CPU.
+namespace CommandProcessor
+{
+extern bool g_stv_fifo_rapido;  // STV_GC_FIFO_v1 (CommandProcessor.cpp)
+}
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
@@ -120,6 +124,16 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    {
+      // STV_GC_FIFO_v1: debug.stv.gc.fifo = 0 vuelve al camino original de las rafagas del FIFO.
+      char fv[PROP_VALUE_MAX] = {};
+      const bool r = !(__system_property_get("debug.stv.gc.fifo", fv) > 0 && fv[0] == '0');
+      if (r != CommandProcessor::g_stv_fifo_rapido)
+      {
+        CommandProcessor::g_stv_fifo_rapido = r;
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo rapido=%d", r ? 1 : 0);
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
