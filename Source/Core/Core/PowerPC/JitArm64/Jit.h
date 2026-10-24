@@ -70,6 +70,21 @@ public:
   void STVDcGuardar(bool nop_si_apagada = false);
   void STVDcCargar(bool nop_si_apagada = false);
 
+  // STV_GC_JITGF_v1: con la valvula STVGprFijos (STVGf() != 0), r3,r0,r31,r4,r1,r30 viven en
+  // W19-W24 en todo el codigo JIT (ver JitArm64_RegCache.h). Invariante: la copia en ppcState.gpr solo vale con el
+  // control en C++ en un punto de sincronizacion. STVGfGuardar: los seis registros -> ppcState (3 STP);
+  // STVGfCargar: ppcState -> los seis (3 LDP). Con la valvula apagada no emiten nada, o 3 NOP si se pide (rutinas del
+  // despachador: misma disposicion en los tres modos, como STVDc*). A diferencia del downcount, los envoltorios
+  // ABI_CallFunction NO sincronizan los fijos: ningun C++ llamado desde un bloque lee ni escribe ppcState.gpr salvo
+  // el interprete (FallBackToInterpreter), HLE y los puntos de parada, que sincronizan a mano; los demas (memoria
+  // lenta, MMIO, gather pipe, excepciones, BranchWatch, Idle, perfilado, invalidacion de icache) no tocan gpr, y
+  // los callee-saved sobreviven a la llamada por ABI. Los puntos de vigilancia si leen gpr: con jo.memcheck la
+  // valvula se fuerza a 0.
+  void STVGfGuardar(bool nop_si_apagada = false);
+  void STVGfCargar(bool nop_si_apagada = false);
+  // STV_GC_JITGF_v1: modo 2, al entrar a cada bloque: cada fijo contra su copia en ppcState; si difieren, BRK #0x5A.
+  void STVGfVerificar();
+
   template <typename FuncRet, typename... FuncArgs, typename... Args>
   void ABI_CallFunction(FuncRet (*func)(FuncArgs...), Args... args)
   {
