@@ -14,6 +14,10 @@
 #include "VideoCommon/Constants.h"
 #include "vulkan/vulkan_core.h"
 
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 namespace Vulkan
 {
 CommandBufferManager::CommandBufferManager(bool use_threaded_submission)
@@ -358,7 +362,19 @@ void CommandBufferManager::SubmitCommandBuffer(bool submit_on_worker_thread,
 
   if (advance_to_next_frame)
   {
-    m_current_frame = (m_current_frame + 1) % NUM_FRAMES_IN_FLIGHT;
+    // STV_GC_VUELO_v1: cuadros en vuelo, 3 salvo debug.stv.gc.vuelo = 2 (releido cada 30 cuadros). Cambiarlo en
+    // caliente es seguro: antes de reusar los recursos de un cuadro se espera a TODOS los buferes de comandos con
+    // ese indice (el lazo de abajo), sea cual sea el modulo.
+    static u32 stv_vuelo = NUM_FRAMES_IN_FLIGHT, stv_cuenta = 0;
+#ifdef __ANDROID__
+    if ((stv_cuenta++ % 30) == 0)
+    {
+      char v[PROP_VALUE_MAX] = {};
+      stv_vuelo = (__system_property_get("debug.stv.gc.vuelo", v) > 0 && v[0] == '2') ? 2 :
+                                                                                      NUM_FRAMES_IN_FLIGHT;
+    }
+#endif
+    m_current_frame = (m_current_frame + 1) % stv_vuelo;
 
     // Wait for all command buffers that used the descriptor pool to finish
     u32 cmd_buffer_index = (m_current_cmd_buffer + 1) % NUM_COMMAND_BUFFERS;
