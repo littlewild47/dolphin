@@ -12,6 +12,16 @@
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
+#include "Core/Config/MainSettings.h"
+
+#ifdef __ANDROID__
+// STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
+// cuadros, los VI y la velocidad de la emulacion; el cuadro mas largo, los de mas de 50 ms, las compilaciones de
+// pipelines, la cache de texturas y si el JIT sigue ramas (JITFollowBranch, ajustable por juego). Instrumento del banco de GameCube de STV: no depende de que el
+// backend dibuje (backend Null) ni de capturar la pantalla.
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 PerformanceMetrics::PerformanceMetrics()
 {
@@ -36,9 +46,27 @@ void PerformanceMetrics::Reset()
   m_frame_presentation_offset = DT{};
 }
 
+// STV_GC_METRICAS: cuadro mas largo y cuadros de mas de 50 ms desde la ultima linea (los tirones que el promedio
+// por segundo esconde). CountFrame corre en el hilo de video; la linea la escribe el hilo de CPU.
+static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
+extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
+extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
+static TimePoint s_stv_ultimo_cuadro{};
+
 void PerformanceMetrics::CountFrame()
 {
   m_fps_counter.Count();
+  const TimePoint ahora = Clock::now();
+  if (s_stv_ultimo_cuadro != TimePoint{})
+  {
+    const u32 us = static_cast<u32>(
+        std::chrono::duration_cast<std::chrono::microseconds>(ahora - s_stv_ultimo_cuadro).count());
+    if (us > s_stv_max_us.load(std::memory_order_relaxed))
+      s_stv_max_us.store(us, std::memory_order_relaxed);
+    if (us > 50000)
+      s_stv_n50.fetch_add(1, std::memory_order_relaxed);
+  }
+  s_stv_ultimo_cuadro = ahora;
 }
 
 void PerformanceMetrics::CountVBlank()
@@ -81,6 +109,26 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
 
   m_speed.store(elapsed_core_time / (clock_time - oldest.clock_time), std::memory_order_relaxed);
   m_max_speed.store(elapsed_core_time / (work_time - oldest.work_time), std::memory_order_relaxed);
+
+#ifdef __ANDROID__
+  static TimePoint stv_ultima{};
+  if (clock_time - stv_ultima >= std::chrono::seconds{1})
+  {
+    stv_ultima = clock_time;
+    char v[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
+    {
+      __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                          "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f "
+                          "tex=%u/%uMB pool=%u/%uMB rama=%d",
+                          GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), s_stv_max_us.exchange(0) / 1000.0,
+                          s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0,
+                          g_stv_tex_n.load(), g_stv_tex_kb.load() / 1024, g_stv_pool_n.load(),
+                          g_stv_pool_kb.load() / 1024,
+                          Config::Get(Config::MAIN_JIT_FOLLOW_BRANCH) ? 1 : 0);
+    }
+  }
+#endif
 }
 
 double PerformanceMetrics::GetFPS() const
