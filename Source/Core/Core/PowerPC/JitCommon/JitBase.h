@@ -172,6 +172,7 @@ public:
   bool m_stv_fifo_reg = true;  // STV_GC_FIFOREG_v1 (la lee GPFifo: publica)
   bool m_stv_cero = true;  // STV_GC_CERO_v1
   bool m_stv_fifo_rut = true;  // STV_GC_FIFORUT_v1
+  bool m_stv_gqr = true;       // STV_GC_GQR_v1
 protected:
   // STV_GC_JITGF_v1: valor pedido de [Core] STVGprFijos (crudo, sin acotar: se compara contra la
   // configuracion para saber si hay que refrescar) y modo efectivo 0|1|2 que usa JitArm64. El efectivo se fuerza a
@@ -186,7 +187,7 @@ protected:
   bool m_cleanup_after_stackfault = false;
   u8* m_stack_guard = nullptr;
 
-  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 30> JIT_SETTINGS;
+  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 31> JIT_SETTINGS;
 
   bool DoesConfigNeedRefresh() const;
   void RefreshConfig();
