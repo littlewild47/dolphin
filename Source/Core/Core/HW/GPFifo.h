@@ -70,4 +70,5 @@ private:
 // For use from the JIT.
 void UpdateGatherPipe(GPFifoManager& gpfifo);
 void FastCheckGatherPipe(GPFifoManager& gpfifo);
+void STVCheckGatherPipe(GPFifoManager& gpfifo);  // STV_GC_FIFORUT_v1
 }  // namespace GPFifo
