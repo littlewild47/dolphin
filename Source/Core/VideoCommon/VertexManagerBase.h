@@ -96,10 +96,20 @@ public:
 
   // Streaming buffer sizes.
   // Texel buffer will fit the maximum size of an encoded GX texture. 1024x1024, RGBA8 = 4MB.
+#ifdef ANDROID
+  // STV_GC_MEMORIA_v1: en una consola de 1 GB los 136 MB de PC son RAM fisica que no se pagina.
+  // El de vertices NO baja: cada ResetBuffer reserva MAXVBUFFERSIZE (16 MB) contiguos; con 16 MB de
+  // buffer salta la alerta "Attempting to allocate 16777216 bytes..." y con poco margen se estanca.
+  static constexpr u32 VERTEX_STREAM_BUFFER_SIZE = 48 * 1024 * 1024;
+  static constexpr u32 INDEX_STREAM_BUFFER_SIZE = 4 * 1024 * 1024;
+  static constexpr u32 UNIFORM_STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
+  static constexpr u32 TEXEL_STREAM_BUFFER_SIZE = 8 * 1024 * 1024;
+#else
   static constexpr u32 VERTEX_STREAM_BUFFER_SIZE = 48 * 1024 * 1024;
   static constexpr u32 INDEX_STREAM_BUFFER_SIZE = 8 * 1024 * 1024;
   static constexpr u32 UNIFORM_STREAM_BUFFER_SIZE = 64 * 1024 * 1024;
   static constexpr u32 TEXEL_STREAM_BUFFER_SIZE = 16 * 1024 * 1024;
+#endif
 
   VertexManagerBase();
   virtual ~VertexManagerBase();

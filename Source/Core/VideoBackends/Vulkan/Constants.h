@@ -85,7 +85,11 @@ constexpr u32 NUM_UTILITY_PIXEL_SAMPLERS = 8;
 constexpr u32 NUM_COMPUTE_TEXEL_BUFFERS = 2;
 
 // Textures that don't fit into this buffer will be uploaded with a separate buffer (see below).
+#ifdef ANDROID
+constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 8 * 1024 * 1024;  // STV_GC_MEMORIA_v1
+#else
 constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 32 * 1024 * 1024;
+#endif
 
 // Textures greater than 1024*1024 will be put in staging textures that are released after
 // execution instead. A 2048x2048 texture is 16MB, and we'd only fit four of these in our

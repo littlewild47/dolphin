@@ -1,6 +1,12 @@
 // Copyright 2016 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#ifdef ANDROID
+// STV_GC_MEMORIA_v1 (STV-TSPS-Android, consola de 1 GB): VMA trata un heap <= 1 GiB como "chico" y usa
+// bloques de heap/8 = 128 MB, ignorando preferredLargeHeapBlockSize. En la Mali eso se compromete entero en RAM
+// fisica (no se pagina) y empuja la RAM emulada de Dolphin a zram. Con esto rige el tamano pedido (16 MB).
+#define VMA_SMALL_HEAP_MAX_SIZE 0ull
+#endif
 #define VMA_IMPLEMENTATION
 #include "VideoBackends/Vulkan/VulkanLoader.h"
 
