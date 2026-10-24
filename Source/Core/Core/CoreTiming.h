@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <atomic>
+
 // This is a system to schedule events into the emulated machine's future. Time is measured
 // in main CPU clock cycles.
 
@@ -38,6 +40,9 @@ class System;
 
 namespace CoreTiming
 {
+// STV_GC_SALTO_v1: lazos ociosos con espera al video y sin ella (las metricas los leen por segundo).
+extern std::atomic<u64> g_stv_esperas, g_stv_saltos;
+
 // These really shouldn't be global, but jit64 accesses them directly
 struct Globals
 {
@@ -209,6 +214,8 @@ private:
   float m_config_oc_factor = 1.0f;
   float m_config_oc_inv_factor = 1.0f;
   bool m_config_sync_on_skip_idle = false;
+  // STV_GC_SALTO_v1: salto de cuadros adaptativo (ver Idle).
+  int m_stv_salto = 1;
   bool m_config_rush_frame_presentation = false;
 
   s64 m_throttle_reference_cycle = 0;
