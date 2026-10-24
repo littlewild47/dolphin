@@ -86,6 +86,10 @@ extern const Info<int> MAIN_STV_GP_UMBRAL;
 // no espera al de video al saltar un lazo ocioso (el juego sigue a su ritmo real y se pierden cuadros); al dia, espera
 // como siempre. 0 = el interruptor no hace nada (valvula de A/B), 1 = salto.
 extern const Info<int> MAIN_STV_SALTO;
+// STV_GC_VILAZO_v1: el evento del VI corre solo en las medias lineas en las que pasa algo (bordes de campo, sondeo del
+// SI, lineas de interrupcion), no en las ~31.500 por segundo; la posicion del haz se calcula al leerla. WW, TP y
+// Simpsons +2,3-2,7 % de FPS. [Core] STVViLazo (defecto True); debug.stv.gc.vilazo=0|1.
+extern const Info<bool> MAIN_STV_VILAZO;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;

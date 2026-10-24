@@ -372,6 +372,12 @@ public:
   u32 GetXFBAddressTop() const;
   u32 GetXFBAddressBottom() const;
 
+  // STV_GC_VILAZO_v1 (ver VideoInterface.cpp).
+  void STVAvanzarA(u64 ticks);
+  u32 STVProgramarSiguiente();
+  void STVMaterializar(u64 ahora);
+  void STVReprogramar();
+
   // Update and draw framebuffer
   void Update(u64 ticks);
 
@@ -447,6 +453,12 @@ private:
   u64 m_ticks_last_line_start = 0;  // number of ticks when the current full scanline started
   u32 m_half_line_count = 0;        // number of halflines that have occurred for this full frame
   u32 m_half_line_of_next_si_poll = 0;  // halfline when next SI poll results should be available
+
+  // STV_GC_VILAZO_v1: con el ajuste prendido, la media linea que procesara el evento pendiente (tope de la
+  // materializacion; UINT32_MAX = sin tope, p. ej. despues de cargar un estado).
+  bool m_stv_vilazo = true;
+  u32 m_stv_cuenta_evento = UINT32_MAX;
+  u32 STVDistancia(u32 cuenta) const;
 
   // below indexes are 0-based
   u32 m_even_field_first_hl = 0;  // index first halfline of the even field
