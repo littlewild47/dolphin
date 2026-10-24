@@ -108,7 +108,10 @@ static void WritePrimitiveExpand(APIType api_type, const ShaderHostConfig& host_
   {
     out.Write("\tuint vertex_id = uint(gl_VertexID) >> 2u;\n");
   }
-  out.Write("\treturn input_buffer[vertex_id + index_offset];\n");
+  // STV_GC_LINEA_v1 (STV-TSPS-Android): el vecino "anterior" de la expansion de lineas nunca baja de 0. Con
+  // vertex_id 0 el uint da 0xFFFFFFFF y la Mali (r40p0) lee 64 GB mas arriba: Unhandled Page fault ->
+  // VK_ERROR_DEVICE_LOST (Zelda Twilight Princess, tambien con la 2609 oficial).
+  out.Write("\treturn input_buffer[(index_offset < 0 && vertex_id == 0u) ? 0u : vertex_id + uint(index_offset)];\n");
   out.Write("}}\n\n");
 }
 
