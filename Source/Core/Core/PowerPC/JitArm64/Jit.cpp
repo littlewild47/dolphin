@@ -358,7 +358,9 @@ void JitArm64::Cleanup()
     static_assert(PPCSTATE_OFF(gather_pipe_ptr) + 8 == PPCSTATE_OFF(gather_pipe_base_ptr));
     LDP(IndexType::Signed, ARM64Reg::X0, ARM64Reg::X1, PPC_REG, PPCSTATE_OFF(gather_pipe_ptr));
     SUB(ARM64Reg::X0, ARM64Reg::X0, ARM64Reg::X1);
-    CMP(ARM64Reg::X0, GPFifo::GATHER_PIPE_SIZE);
+    // STV_GC_FIFO3_v1: el chequeo de fin de bloque tambien usa el umbral (era el que disparaba casi todos los vaciados:
+    // FIFO2 lo dejo en 32 y por eso "el umbral no movia nada").
+    CMP(ARM64Reg::X0, m_stv_gp_umbral);
     FixupBranch exit = B(CC_LT);
     ABI_CallFunction(&GPFifo::UpdateGatherPipe, &m_system.GetGPFifo());
     SetJumpTarget(exit);
@@ -1343,7 +1345,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       bool gatherPipeIntCheck = js.fifoWriteAddresses.contains(prev_address);
 
       if (jo.optimizeGatherPipe &&
-          (js.fifoBytesSinceCheck >= GPFifo::GATHER_PIPE_SIZE || js.mustCheckFifo))
+          (js.fifoBytesSinceCheck >= m_stv_gp_umbral || js.mustCheckFifo))  // STV_GC_FIFO3_v1
       {
         js.fifoBytesSinceCheck = 0;
         js.mustCheckFifo = false;

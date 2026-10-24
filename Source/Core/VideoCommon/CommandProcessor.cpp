@@ -418,6 +418,46 @@ void CommandProcessorManager::GatherPipeBursted()
              "FIFOs linked but out of sync");
 }
 
+// STV_GC_FIFO3_v1: n rafagas de 32 B de una vez (las copio UpdateGatherPipe, que ya avanzo el puntero del PI rafaga a
+// rafaga). Con el FIFO enlazado hace lo de GatherPipeBursted una sola vez: el estado al empezar, el puntero de
+// escritura con su vuelta rafaga a rafaga, UNA suma atomica de la distancia y UN aviso al hilo de video. Sin enlazar,
+// o con una sola rafaga, es GatherPipeBursted tal cual.
+bool g_stv_fifo_lote = false;
+
+void CommandProcessorManager::STVGatherPipeBurstedN(u32 n)
+{
+  if (n == 1 || !g_stv_fifo_lote || !m_cp_ctrl_reg.GPLinkEnable)
+  {
+    for (u32 i = 0; i < n; i++)
+      GatherPipeBursted();
+    return;
+  }
+
+  SetCPStatusFromCPU();
+
+  auto& processor_interface = m_system.GetProcessorInterface();
+  const u32 base = m_fifo.CPBase.load(std::memory_order_relaxed);
+  const u32 end = m_fifo.CPEnd.load(std::memory_order_relaxed);
+  u32 wp = m_fifo.CPWritePointer.load(std::memory_order_relaxed);
+  for (u32 i = 0; i < n; i++)
+    wp = (wp == end) ? base : wp + GPFifo::GATHER_PIPE_SIZE;
+  m_fifo.CPWritePointer.store(wp, std::memory_order_relaxed);
+
+  if (m_cp_ctrl_reg.GPReadEnable && m_cp_ctrl_reg.GPLinkEnable)
+  {
+    processor_interface.m_fifo_cpu_write_pointer = wp;
+    processor_interface.m_fifo_cpu_base = base;
+    processor_interface.m_fifo_cpu_end = end;
+  }
+
+  if (m_fifo.bFF_HiWatermark.load(std::memory_order_relaxed) != 0)
+    m_system.GetCoreTiming().ForceExceptionCheck(0);
+
+  m_fifo.CPReadWriteDistance.fetch_add(GPFifo::GATHER_PIPE_SIZE * n, std::memory_order_seq_cst);
+
+  m_system.GetFifo().RunGpu();
+}
+
 void CommandProcessorManager::UpdateInterrupts(u64 userdata)
 {
   if (userdata)

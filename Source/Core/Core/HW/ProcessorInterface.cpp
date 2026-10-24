@@ -12,6 +12,7 @@
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/DVD/DVDInterface.h"
+#include "Core/HW/GPFifo.h"
 #include "Core/HW/MMIO.h"
 #include "Core/HW/SystemTimers.h"
 #include "Core/IOS/IOS.h"
@@ -88,22 +89,43 @@ void ProcessorInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    processor_interface.UpdateException();
                  }));
 
-  mmio->Register(base | PI_FIFO_BASE, MMIO::DirectRead<u32>(&m_fifo_cpu_base),
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
+  // estarian en Dolphin.
+  mmio->Register(base | PI_FIFO_BASE, MMIO::ComplexRead<u32>([](Core::System& system, u32) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
+                   return system.GetProcessorInterface().m_fifo_cpu_base;
+                 }),
                  MMIO::ComplexWrite<u32>([](Core::System& system, u32, u32 val) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
                    u32 mask = CommandProcessor::GetPhysicalAddressMask(system.IsWii()) & 0xFFFFFFE0;
                    auto& processor_interface = system.GetProcessorInterface();
                    processor_interface.m_fifo_cpu_base = val & mask;
                  }));
 
-  mmio->Register(base | PI_FIFO_END, MMIO::DirectRead<u32>(&m_fifo_cpu_end),
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
+  // estarian en Dolphin.
+  mmio->Register(base | PI_FIFO_END, MMIO::ComplexRead<u32>([](Core::System& system, u32) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
+                   return system.GetProcessorInterface().m_fifo_cpu_end;
+                 }),
                  MMIO::ComplexWrite<u32>([](Core::System& system, u32, u32 val) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
                    u32 mask = CommandProcessor::GetPhysicalAddressMask(system.IsWii()) & 0xFFFFFFE0;
                    auto& processor_interface = system.GetProcessorInterface();
                    processor_interface.m_fifo_cpu_end = val & mask;
                  }));
 
-  mmio->Register(base | PI_FIFO_WPTR, MMIO::DirectRead<u32>(&m_fifo_cpu_write_pointer),
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
+  // estarian en Dolphin.
+  mmio->Register(base | PI_FIFO_WPTR, MMIO::ComplexRead<u32>([](Core::System& system, u32) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
+                   return system.GetProcessorInterface().m_fifo_cpu_write_pointer;
+                 }),
                  MMIO::ComplexWrite<u32>([](Core::System& system, u32, u32 val) {
+                   system.GetGPFifo().STVVaciarSiRetiene();
                    u32 mask = CommandProcessor::GetPhysicalAddressMask(system.IsWii()) & 0xFFFFFFE0;
                    auto& processor_interface = system.GetProcessorInterface();
                    processor_interface.m_fifo_cpu_write_pointer = val & mask;

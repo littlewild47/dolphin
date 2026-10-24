@@ -56,6 +56,8 @@ const Info<int> MAIN_STV_GPR_FIJOS{{System::Main, "Core", "STVGprFijos"}, 1};
 const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
 // STV_GC_FIFOREG_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO con la direccion en un registro).
 const Info<bool> MAIN_STV_FIFO_REG{{System::Main, "Core", "STVFifoReg"}, true};
+// STV_GC_FIFO3_v1: bytes del gather pipe que se juntan antes de vaciarlo (Dolphin: 32). Por defecto 256.
+const Info<int> MAIN_STV_GP_UMBRAL{{System::Main, "Core", "STVGatherUmbral"}, 256};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};
