@@ -132,6 +132,10 @@ public:
     m_file.WriteArray(value, value_size);
     m_num_entries++;
     m_file.WriteArray(&m_num_entries, 1);
+    // STV_GC_CACHEDISCO_v1: volcar cada entrada (son pocas: un shader nuevo). Sin esto la cola del bufer de stdio se
+    // pierde cuando Android mata el proceso sin el cierre ordenado, y esos shaders se recompilan (con tirones) en
+    // cada sesion.
+    m_file.Flush();
   }
 
 private:

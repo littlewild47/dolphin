@@ -908,7 +908,12 @@ void ShaderCache::AppendGXPipelineUID(const GXPipelineUid& config)
   {
     WARN_LOG_FMT(VIDEO, "Writing pipeline UID to cache failed, closing file.");
     m_gx_pipeline_uid_cache_file.Close();
+    return;
   }
+  // STV_GC_CACHEDISCO_v1: el UID a disco ya (ver LinearDiskCache::Append): con la cola perdida, el pipeline no se
+  // precompila al arrancar el juego y se compila en medio del juego (WW, primer giro de camara: 8 pipelines, cuadros
+  // de ~210 ms, en cada sesion).
+  m_gx_pipeline_uid_cache_file.Flush();
 }
 
 void ShaderCache::QueueVertexShaderCompile(const VertexShaderUid& uid, u32 priority)
