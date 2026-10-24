@@ -15,7 +15,10 @@ namespace Vulkan
 constexpr size_t NUM_COMMAND_BUFFERS = 8;
 
 // Number of frames in flight, will be used to decide how many descriptor pools are used
-constexpr size_t NUM_FRAMES_IN_FLIGHT = 2;
+// STV_GC_VUELO_v1: 3 cuadros en vuelo (Dolphin: 2). En la Mali-G57 de la consola STV el hilo de video pasaba el 23 %
+// esperando la valla del cuadro anterior (Twilight Princess, bosque); con 3: 82 -> 90 % de velocidad. Cuantos se
+// usan lo decide CommandBufferManager (debug.stv.gc.vuelo = 2 vuelve a lo de Dolphin).
+constexpr size_t NUM_FRAMES_IN_FLIGHT = 3;
 
 // Staging buffer usage - optimize for uploads or readbacks
 enum STAGING_BUFFER_TYPE
