@@ -92,6 +92,7 @@ std::string GetDiskShaderCacheFileName(APIType api_type, const char* type, bool 
     filename += fmt::format("-{:06X}", host_config.bits);
   }
 
+  filename += "-stv1";  // STV_GC_LINEA_v1: shaders generados distinto con los mismos UID: cache nueva
   filename += ".cache";
   return filename;
 }
