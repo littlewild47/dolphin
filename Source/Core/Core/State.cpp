@@ -3,6 +3,10 @@
 
 #include "Core/State.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #include <algorithm>
 #include <filesystem>
 #include <locale>
@@ -846,6 +850,10 @@ static void LoadAsFromCore(Core::System& system, std::string filename)
       const std::filesystem::path temp_filename(StringToPath(filename));
       Core::DisplayMessage(
           fmt::format("Loaded State from {}", PathToString(temp_filename.filename())), 2000);
+#ifdef __ANDROID__
+      // STV_GC_METRICAS: senal para el banco de STV (tools/gc/escena.sh): el estado se cargo de verdad.
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "estado cargado: %s", PathToString(temp_filename.filename()).c_str());
+#endif
       if (File::Exists(filename + ".dtm"))
       {
         movie.LoadInput(filename + ".dtm");
