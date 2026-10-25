@@ -137,7 +137,15 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         stv_jd_prev = jd;
         auto& system = Core::System::GetInstance();
         const Core::CPUThreadGuard guard(system);
-        if (jd[0] == 'w')
+        if (jd[0] == 'p')
+        {
+          // Prende el modo depuracion y el perfilado de bloques en caliente: estan en la tabla de ajustes del JIT,
+          // asi que el proximo CheckForConfigChanges vacia la cache y los bloques nuevos traen sus contadores.
+          Config::SetCurrent(Config::MAIN_ENABLE_DEBUGGING, true);
+          Config::SetCurrent(Config::MAIN_DEBUG_JIT_ENABLE_PROFILING, true);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jitdump: perfilado de bloques prendido");
+        }
+        else if (jd[0] == 'w')
         {
           system.GetJitInterface().WipeBlockProfilingData(guard);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jitdump: contadores en cero");
