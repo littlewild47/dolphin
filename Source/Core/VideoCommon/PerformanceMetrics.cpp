@@ -115,14 +115,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
   if (clock_time - stv_ultima >= std::chrono::seconds{1})
   {
     stv_ultima = clock_time;
+    // Los contadores de la ventana se toman SIEMPRE (con las metricas apagadas tambien): si no, la primera linea
+    // despues de prenderlas traia todo lo acumulado (f50=861 tras 60 s apagadas, medido en f237).
+    const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
+    const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
+    const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
       __android_log_print(ANDROID_LOG_INFO, "STVGC",
                           "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f "
                           "tex=%u/%uMB pool=%u/%uMB rama=%d",
-                          GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), s_stv_max_us.exchange(0) / 1000.0,
-                          s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0,
+                          GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), stv_fmax, stv_n50, stv_pipes,
+                          stv_pipems,
                           g_stv_tex_n.load(), g_stv_tex_kb.load() / 1024, g_stv_pool_n.load(),
                           g_stv_pool_kb.load() / 1024,
                           Config::Get(Config::MAIN_JIT_FOLLOW_BRANCH) ? 1 : 0);
