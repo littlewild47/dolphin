@@ -840,7 +840,11 @@ bool VulkanContext::CreateAllocator(u32 vk_api_version)
   allocator_info.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
   allocator_info.physicalDevice = m_physical_device;
   allocator_info.device = m_device;
+#ifdef ANDROID
+  allocator_info.preferredLargeHeapBlockSize = 16 << 20;  // STV_GC_MEMORIA_v1
+#else
   allocator_info.preferredLargeHeapBlockSize = 64 << 20;
+#endif
   allocator_info.pAllocationCallbacks = nullptr;
   allocator_info.pDeviceMemoryCallbacks = nullptr;
   allocator_info.pHeapSizeLimit = nullptr;
