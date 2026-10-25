@@ -174,8 +174,34 @@ void TextureCacheBase::OnConfigChanged(const VideoConfig& config)
   SetBackupConfig(config);
 }
 
+// STV_GC_METRICAS: tamano de la cache de texturas (entradas vivas y pool de libres), cada 60 cuadros.
+std::atomic<u32> g_stv_tex_n{0}, g_stv_tex_kb{0}, g_stv_pool_n{0}, g_stv_pool_kb{0};
+static u64 StvTexKB(const AbstractTexture* t)
+{
+  if (!t)
+    return 0;
+  const TextureConfig& c = t->GetConfig();
+  u64 b = u64(c.width) * c.height * c.layers * c.samples *
+          AbstractTexture::GetTexelSizeForFormat(c.format);
+  if (c.levels > 1)
+    b = b * 4 / 3;
+  return b / 1024;
+}
+
 void TextureCacheBase::Cleanup(int _frameCount)
 {
+  if ((_frameCount % 60) == 0)
+  {
+    u64 kb = 0, pkb = 0;
+    for (const auto& e : m_textures_by_address)
+      kb += StvTexKB(e.second->texture.get());
+    for (const auto& e : m_texture_pool)
+      pkb += StvTexKB(e.second.texture.get());
+    g_stv_tex_n.store(static_cast<u32>(m_textures_by_address.size()));
+    g_stv_tex_kb.store(static_cast<u32>(kb));
+    g_stv_pool_n.store(static_cast<u32>(m_texture_pool.size()));
+    g_stv_pool_kb.store(static_cast<u32>(pkb));
+  }
   TexAddrCache::iterator iter = m_textures_by_address.begin();
   TexAddrCache::iterator tcend = m_textures_by_address.end();
   while (iter != tcend)
