@@ -29,6 +29,35 @@ constexpr Arm64Gen::ARM64Reg DISPATCHER_PC = Arm64Gen::ARM64Reg::W26;
 // es el mismo en los dos modos.
 constexpr Arm64Gen::ARM64Reg DOWNCOUNT_REG = Arm64Gen::ARM64Reg::W27;
 
+// STV_GC_JITGF_x (EXPLORACION): con la valvula STVGprFijos prendida, seis GPR del PowerPC viven FIJOS en registros
+// callee-saved del anfitrion en todo el codigo JIT y en todo borde de bloque (los mas usados en Twilight Princess):
+//   r3 -> W19, r0 -> W20, r31 -> W21, r4 -> W22, r1 -> W23, r30 -> W24.
+// Invariante: dentro del codigo JIT la verdad es el registro fijo; ppcState.gpr[] de esos seis solo vale en los
+// puntos de sincronizacion (control en C++: despachador, interprete, HLE, puntos de parada). Con la valvula
+// prendida, W19-W24 salen del orden de asignacion (pool 27 -> 21). Callee-saved: el C++ los preserva.
+// Pares contiguos en ppcState (para STP/LDP): {r0,r1} = {W20,W23}, {r3,r4} = {W19,W22}, {r30,r31} = {W24,W21}.
+constexpr u32 STV_GF_MASCARA = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) | (1u << 30) | (1u << 31);
+constexpr Arm64Gen::ARM64Reg STVGfHost(size_t preg)
+{
+  switch (preg)
+  {
+  case 3:
+    return Arm64Gen::ARM64Reg::W19;
+  case 0:
+    return Arm64Gen::ARM64Reg::W20;
+  case 31:
+    return Arm64Gen::ARM64Reg::W21;
+  case 4:
+    return Arm64Gen::ARM64Reg::W22;
+  case 1:
+    return Arm64Gen::ARM64Reg::W23;
+  case 30:
+    return Arm64Gen::ARM64Reg::W24;
+  default:
+    return Arm64Gen::ARM64Reg::INVALID_REG;
+  }
+}
+
 #ifdef __GNUC__
 #define PPCSTATE_OFF(elem)                                                                         \
   ([]() consteval {                                                                                \
@@ -179,6 +208,9 @@ public:
 
   virtual BitSet32 GetCallerSavedUsed() const = 0;
 
+  // STV_GC_JITGF_x: el indice de registro invitado es un GPR fijo (solo la cache de GPR, con la valvula prendida).
+  virtual bool STVEsFijo(size_t index) const { return false; }
+
   // Returns a temporary register for use
   // Requires unlocking after done
   Arm64Gen::ARM64Reg GetReg();
@@ -281,6 +313,9 @@ protected:
   // Flushes a guest register by host provided
   virtual void FlushByHost(Arm64Gen::ARM64Reg host_reg,
                            Arm64Gen::ARM64Reg tmp_reg = Arm64Gen::ARM64Reg::INVALID_REG) = 0;
+
+  // STV_GC_JITGF_x: deja un GPR fijo "en su registro y sincronizado" (en vez de "solo en ppcState").
+  virtual void STVFijoEnHost(size_t index) {}
 
   void DiscardRegister(size_t preg);
   virtual void FlushRegister(size_t preg, FlushMode mode, Arm64Gen::ARM64Reg tmp_reg) = 0;
@@ -387,6 +422,15 @@ public:
 
   BitSet32 GetDirtyGPRs() const;
 
+  // STV_GC_JITGF_x: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
+  // cache vacia (Init y ClearCache, despues de RefreshConfig).
+  void STVGfConfigurar(int modo);
+  int STVGfModo() const { return m_stv_gf; }
+  bool STVEsFijo(size_t index) const override
+  {
+    return m_stv_gf != 0 && index < GUEST_GPR_COUNT && ((STV_GF_MASCARA >> index) & 1) != 0;
+  }
+
   void FlushRegisters(
       BitSet32 regs, FlushMode flush_mode = FlushMode::Full,
       Arm64Gen::ARM64Reg tmp_reg = Arm64Gen::ARM64Reg::INVALID_REG,
@@ -410,8 +454,14 @@ protected:
 
   void FlushRegister(size_t index, FlushMode mode, Arm64Gen::ARM64Reg tmp_reg) override;
 
+  void STVFijoEnHost(size_t index) override;
+
 private:
   bool IsCallerSaved(Arm64Gen::ARM64Reg reg) const;
+
+  // STV_GC_JITGF_x
+  void STVFlushFijo(size_t index, FlushMode mode);
+  int m_stv_gf = 0;
 
   struct GuestRegInfo
   {

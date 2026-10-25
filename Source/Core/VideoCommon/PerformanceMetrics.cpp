@@ -151,6 +151,23 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_JITGF_x (EXPLORACION): debug.stv.gc.gf = 0|1|2 apaga/prende los GPR fijos del JIT ARM64 (2 = con
+    // verificacion). Mismo camino que dc: el proximo CheckForConfigChanges vacia la cache. El modo EFECTIVO lo
+    // escribe JitBase::RefreshConfig ("jit: gf efectivo=..."): con jo.memcheck queda en 0 aunque se pida 1 o 2.
+    {
+      char gf[PROP_VALUE_MAX] = {};
+      static int stv_gf_prev = -1;
+      if (__system_property_get("debug.stv.gc.gf", gf) > 0 && gf[0] >= '0' && gf[0] <= '2')
+      {
+        const int n = gf[0] - '0';
+        if (n != stv_gf_prev)
+        {
+          stv_gf_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_GPR_FIJOS, n);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: gf=%d", n);
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {

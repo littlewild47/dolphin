@@ -63,6 +63,9 @@ extern const Info<bool> MAIN_LARGE_ENTRY_POINTS_MAP;
 extern const Info<bool> MAIN_ACCURATE_CPU_CACHE;
 // STV_GC_JITDC_x (EXPLORACION): el contador de ciclos del JIT ARM64 en un registro fijo (W27).
 extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
+// STV_GC_JITGF_x (EXPLORACION): r3,r0,r31,r4,r1,r30 del PowerPC fijos en W19-W24 del JIT ARM64 entre bloques.
+// 0 = apagada, 1 = prendida, 2 = prendida + escritura en ppcState.gpr y verificacion al entrar a cada bloque.
+extern const Info<int> MAIN_STV_GPR_FIJOS;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;
