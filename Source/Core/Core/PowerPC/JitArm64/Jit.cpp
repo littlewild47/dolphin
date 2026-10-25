@@ -80,7 +80,7 @@ void JitArm64::Init()
   SetOptimizationEnabled(true);
   gpr.Init(this);
   fpr.Init(this);
-  // STV_GC_JITGF_x: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
+  // STV_GC_JITGF_v1: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
   gpr.STVGfConfigurar(STVGf());
   blocks.Init();
 
@@ -180,7 +180,7 @@ void JitArm64::ClearCache()
   m_near_code_1.ClearCodeSpace();
   m_far_code_1.ClearCodeSpace();
   RefreshConfig();
-  // STV_GC_JITGF_x: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
+  // STV_GC_JITGF_v1: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
   gpr.STVGfConfigurar(STVGf());
 
   GenerateAsmAndResetFreeMemoryRanges();
@@ -275,7 +275,7 @@ void JitArm64::FallBackToInterpreter(UGeckoInstruction inst)
   }
 
   Interpreter::Instruction instr = Interpreter::GetInterpreterOp(inst);
-  // STV_GC_JITGF_x: el interprete lee y escribe ppcState.gpr: los fijos van a memoria antes y vuelven despues
+  // STV_GC_JITGF_v1: el interprete lee y escribe ppcState.gpr: los fijos van a memoria antes y vuelven despues
   // (todos: el interprete puede leer cualquiera; el Flush de arriba ya materializo los inmediatos en su registro).
   STVGfGuardar();
   ABI_CallFunction(instr, &m_system.GetInterpreter(), inst.hex);
@@ -333,7 +333,7 @@ void JitArm64::HLEFunction(u32 hook_index)
   gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
   fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
 
-  // STV_GC_JITGF_x: las funciones HLE leen argumentos (r3...) y escriben resultados y r1 (GeckoReturnTrampoline).
+  // STV_GC_JITGF_v1: las funciones HLE leen argumentos (r3...) y escriben resultados y r1 (GeckoReturnTrampoline).
   STVGfGuardar();
   ABI_CallFunction(&HLE::ExecuteFromJIT, js.compilerPC, hook_index, &m_system);
   STVGfCargar();
@@ -373,7 +373,7 @@ void JitArm64::Cleanup()
 
 void JitArm64::DoDownCount()
 {
-  // STV_GC_JITDC_x: con la valvula, un solo SUBS sobre W27 (las banderas siguen alimentando el B.GT del enlace
+  // STV_GC_JITDC_v1: con la valvula, un solo SUBS sobre W27 (las banderas siguen alimentando el B.GT del enlace
   // y el B.LE del despachador). W1 es el temporal si el inmediato no entra en 12 bits.
   if (STVDcReg())
   {
@@ -385,7 +385,7 @@ void JitArm64::DoDownCount()
   STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
 }
 
-// STV_GC_JITDC_x: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
+// STV_GC_JITDC_v1: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
 // (rutinas del despachador: misma disposicion en los dos modos).
 void JitArm64::STVDcGuardar(bool nop_si_apagada)
 {
@@ -395,7 +395,7 @@ void JitArm64::STVDcGuardar(bool nop_si_apagada)
     NOP();
 }
 
-// STV_GC_JITDC_x: ppcState.downcount -> W27 (idem).
+// STV_GC_JITDC_v1: ppcState.downcount -> W27 (idem).
 void JitArm64::STVDcCargar(bool nop_si_apagada)
 {
   if (STVDcReg())
@@ -404,7 +404,7 @@ void JitArm64::STVDcCargar(bool nop_si_apagada)
     NOP();
 }
 
-// STV_GC_JITGF_x: los seis GPR fijos -> ppcState.gpr (3 STP, los pares son contiguos en ppcState).
+// STV_GC_JITGF_v1: los seis GPR fijos -> ppcState.gpr (3 STP, los pares son contiguos en ppcState).
 static_assert(PPCSTATE_OFF_GPR(31) <= 252, "STP/LDP de 32 bits no llega a gpr[30..31]");
 void JitArm64::STVGfGuardar(bool nop_si_apagada)
 {
@@ -422,7 +422,7 @@ void JitArm64::STVGfGuardar(bool nop_si_apagada)
   }
 }
 
-// STV_GC_JITGF_x: ppcState.gpr -> los seis GPR fijos (3 LDP).
+// STV_GC_JITGF_v1: ppcState.gpr -> los seis GPR fijos (3 LDP).
 void JitArm64::STVGfCargar(bool nop_si_apagada)
 {
   if (STVGf() != 0)
@@ -439,7 +439,7 @@ void JitArm64::STVGfCargar(bool nop_si_apagada)
   }
 }
 
-// STV_GC_JITGF_x: modo 2 (solo depuracion). Al entrar al bloque, con la escritura en ppcState de siempre activa,
+// STV_GC_JITGF_v1: modo 2 (solo depuracion). Al entrar al bloque, con la escritura en ppcState de siempre activa,
 // cada registro fijo tiene que ser igual a su copia en memoria. Si no, BRK #0x5A: alguien escribio ppcState.gpr de
 // un fijo sin recargarlo (un C++ llamado desde un bloque, o una rutina que no paso por un punto de
 // sincronizacion), o la cache de registros dejo un fijo sin actualizar (un inmediato que fue a memoria y no al
@@ -508,7 +508,7 @@ void JitArm64::IntializeSpeculativeConstants()
       B(fail);
       SetJumpTarget(no_fail);
 
-      // STV_GC_JITGF_x: si el GPR es fijo, el CMP de arriba ya probo que su registro tiene el valor: dirty = false
+      // STV_GC_JITGF_v1: si el GPR es fijo, el CMP de arriba ya probo que su registro tiene el valor: dirty = false
       // evita un MOVI2R inutil al vaciarlo (en modo 2 la memoria tambien lo tiene: es igual al registro al entrar).
       gpr.SetImmediate(i, compile_time_value, !gpr.STVEsFijo(i));
     }
@@ -1267,7 +1267,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
   b->normalEntry = GetWritableCodePtr();
 
-  // STV_GC_JITGF_x: modo 2, verificacion de los fijos contra ppcState al entrar.
+  // STV_GC_JITGF_v1: modo 2, verificacion de los fijos contra ppcState al entrar.
   if (STVGf() == 2)
     STVGfVerificar();
 
@@ -1416,7 +1416,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
         MOVI2R(DISPATCHER_PC, op.address);
         STP(IndexType::Signed, DISPATCHER_PC, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
-        // STV_GC_JITGF_x: las condiciones de los puntos de parada leen gpr (y una asignacion puede escribirlo), y el
+        // STV_GC_JITGF_v1: las condiciones de los puntos de parada leen gpr (y una asignacion puede escribirlo), y el
         // registro de log imprime r3-r12. Si para, el B(dispatcher_exit) de abajo vuelve a guardar (inocuo).
         STVGfGuardar();
         ABI_CallFunction(&PowerPC::CheckAndHandleBreakPointsFromJIT, &m_system.GetPowerPC());

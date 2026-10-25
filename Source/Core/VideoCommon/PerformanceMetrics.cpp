@@ -125,7 +125,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
     {
-      // STV_GC_FIFO_v1 (exploracion): debug.stv.gc.fifo = 0 vuelve al camino original de las rafagas del FIFO.
+      // STV_GC_FIFO_v1: debug.stv.gc.fifo = 0 vuelve al camino original de las rafagas del FIFO.
       char fv[PROP_VALUE_MAX] = {};
       const bool r = !(__system_property_get("debug.stv.gc.fifo", fv) > 0 && fv[0] == '0');
       if (r != CommandProcessor::g_stv_fifo_rapido)
@@ -134,7 +134,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo rapido=%d", r ? 1 : 0);
       }
     }
-    // STV_GC_JITDC_x (EXPLORACION): debug.stv.gc.dc = 0|1 apaga/prende el downcount en W27 del JIT ARM64. Esta en
+    // STV_GC_JITDC_v1: debug.stv.gc.dc = 0|1 apaga/prende el downcount en W27 del JIT ARM64. Esta en
     // la tabla de ajustes del JIT: el proximo CheckForConfigChanges (dentro de GlobalAdvance) vacia la cache y
     // regenera las rutinas en el mismo ClearCache que aplica el valor nuevo.
     {
@@ -151,7 +151,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
-    // STV_GC_JITGF_x (EXPLORACION): debug.stv.gc.gf = 0|1|2 apaga/prende los GPR fijos del JIT ARM64 (2 = con
+    // STV_GC_JITGF_v1: debug.stv.gc.gf = 0|1|2 apaga/prende los GPR fijos del JIT ARM64 (2 = con
     // verificacion). Mismo camino que dc: el proximo CheckForConfigChanges vacia la cache. El modo EFECTIVO lo
     // escribe JitBase::RefreshConfig ("jit: gf efectivo=..."): con jo.memcheck queda en 0 aunque se pida 1 o 2.
     {

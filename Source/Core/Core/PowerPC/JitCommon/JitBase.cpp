@@ -88,7 +88,7 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JitB
     {&JitBase::m_fastmem_enabled, &Config::MAIN_FASTMEM},
     {&JitBase::m_page_table_fastmem_enabled, &Config::MAIN_PAGE_TABLE_FASTMEM},
     {&JitBase::m_accurate_cpu_cache_enabled, &Config::MAIN_ACCURATE_CPU_CACHE},
-    // STV_GC_JITDC_x: el downcount en W27 (solo lo usa JitArm64).
+    // STV_GC_JITDC_v1: el downcount en W27 (solo lo usa JitArm64).
     {&JitBase::m_stv_dc_reg, &Config::MAIN_STV_DOWNCOUNT_REG},
 }};
 
@@ -121,7 +121,7 @@ JitBase::~JitBase()
 
 bool JitBase::DoesConfigNeedRefresh() const
 {
-  // STV_GC_JITGF_x: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
+  // STV_GC_JITGF_v1: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
   if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
     return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
@@ -155,7 +155,7 @@ void JitBase::RefreshConfig()
   jo.fp_exceptions = m_enable_float_exceptions;
   jo.div_by_zero_exceptions = m_enable_div_by_zero_exceptions;
 
-  // STV_GC_JITGF_x: modo efectivo de los GPR fijos. Con jo.memcheck (MMU, pausa en panico o puntos de vigilancia)
+  // STV_GC_JITGF_v1: modo efectivo de los GPR fijos. Con jo.memcheck (MMU, pausa en panico o puntos de vigilancia)
   // se apaga: (1) las condiciones de los puntos de vigilancia leen ppcState.gpr desde el camino lento de memoria
   // (FlushPPCStateBeforeSlowAccess), y (2) una carga que falla con DSI tiene que dejar rD intacto, y con rD fijo la
   // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada

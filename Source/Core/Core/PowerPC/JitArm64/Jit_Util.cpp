@@ -16,7 +16,7 @@ template <typename T>
 class MMIOWriteCodeGenerator : public MMIO::WriteHandlingMethodVisitor<T>
 {
 public:
-  // STV_GC_JITDC_x: el emisor es el JitArm64 (no un ARM64XEmitter suelto) para que ABI_CallLambdaFunction pase
+  // STV_GC_JITDC_v1: el emisor es el JitArm64 (no un ARM64XEmitter suelto) para que ABI_CallLambdaFunction pase
   // por su envoltorio, que sincroniza W27 con ppcState.downcount alrededor de los manejadores MMIO complejos
   // (pueden programar eventos: ForceExceptionCheck reescribe el downcount).
   MMIOWriteCodeGenerator(Core::System* system, JitArm64* emit, BitSet32 gprs_in_use,
@@ -100,7 +100,7 @@ template <typename T>
 class MMIOReadCodeGenerator : public MMIO::ReadHandlingMethodVisitor<T>
 {
 public:
-  // STV_GC_JITDC_x: ver MMIOWriteCodeGenerator.
+  // STV_GC_JITDC_v1: ver MMIOWriteCodeGenerator.
   MMIOReadCodeGenerator(Core::System* system, JitArm64* emit, BitSet32 gprs_in_use,
                         BitSet32 fprs_in_use, ARM64Reg dst_reg, u32 address, bool sign_extend)
       : m_system(system), m_emit(emit), m_gprs_in_use(gprs_in_use), m_fprs_in_use(fprs_in_use),

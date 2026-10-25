@@ -24,12 +24,12 @@ constexpr Arm64Gen::ARM64Reg MEM_REG = Arm64Gen::ARM64Reg::X28;
 constexpr Arm64Gen::ARM64Reg PPC_REG = Arm64Gen::ARM64Reg::X29;
 // PC register when calling the dispatcher
 constexpr Arm64Gen::ARM64Reg DISPATCHER_PC = Arm64Gen::ARM64Reg::W26;
-// STV_GC_JITDC_x: contador de ciclos (ppcState.downcount) cuando la valvula STVDowncountReg esta prendida.
+// STV_GC_JITDC_v1: contador de ciclos (ppcState.downcount) cuando la valvula STVDowncountReg esta prendida.
 // Callee-saved: el C++ lo preserva. Fuera del orden de asignacion SIEMPRE (prendida o apagada), asi el pool
 // es el mismo en los dos modos.
 constexpr Arm64Gen::ARM64Reg DOWNCOUNT_REG = Arm64Gen::ARM64Reg::W27;
 
-// STV_GC_JITGF_x (EXPLORACION): con la valvula STVGprFijos prendida, seis GPR del PowerPC viven FIJOS en registros
+// STV_GC_JITGF_v1: con la valvula STVGprFijos prendida, seis GPR del PowerPC viven FIJOS en registros
 // callee-saved del anfitrion en todo el codigo JIT y en todo borde de bloque (los mas usados en Twilight Princess):
 //   r3 -> W19, r0 -> W20, r31 -> W21, r4 -> W22, r1 -> W23, r30 -> W24.
 // Invariante: dentro del codigo JIT la verdad es el registro fijo; ppcState.gpr[] de esos seis solo vale en los
@@ -208,7 +208,7 @@ public:
 
   virtual BitSet32 GetCallerSavedUsed() const = 0;
 
-  // STV_GC_JITGF_x: el indice de registro invitado es un GPR fijo (solo la cache de GPR, con la valvula prendida).
+  // STV_GC_JITGF_v1: el indice de registro invitado es un GPR fijo (solo la cache de GPR, con la valvula prendida).
   virtual bool STVEsFijo(size_t index) const { return false; }
 
   // Returns a temporary register for use
@@ -314,7 +314,7 @@ protected:
   virtual void FlushByHost(Arm64Gen::ARM64Reg host_reg,
                            Arm64Gen::ARM64Reg tmp_reg = Arm64Gen::ARM64Reg::INVALID_REG) = 0;
 
-  // STV_GC_JITGF_x: deja un GPR fijo "en su registro y sincronizado" (en vez de "solo en ppcState").
+  // STV_GC_JITGF_v1: deja un GPR fijo "en su registro y sincronizado" (en vez de "solo en ppcState").
   virtual void STVFijoEnHost(size_t index) {}
 
   void DiscardRegister(size_t preg);
@@ -422,7 +422,7 @@ public:
 
   BitSet32 GetDirtyGPRs() const;
 
-  // STV_GC_JITGF_x: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
+  // STV_GC_JITGF_v1: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
   // cache vacia (Init y ClearCache, despues de RefreshConfig).
   void STVGfConfigurar(int modo);
   int STVGfModo() const { return m_stv_gf; }
@@ -459,7 +459,7 @@ protected:
 private:
   bool IsCallerSaved(Arm64Gen::ARM64Reg reg) const;
 
-  // STV_GC_JITGF_x
+  // STV_GC_JITGF_v1
   void STVFlushFijo(size_t index, FlushMode mode);
   int m_stv_gf = 0;
 

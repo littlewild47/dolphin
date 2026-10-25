@@ -179,13 +179,13 @@ void JitArm64::GenerateAsm()
 
   // Call JIT
   ResetStack();
-  // STV_GC_JITDC_x: en este despachador las llamadas a C++ van por la version de ARM64XEmitter (sin el envoltorio
+  // STV_GC_JITDC_v1: en este despachador las llamadas a C++ van por la version de ARM64XEmitter (sin el envoltorio
   // de JitArm64) y se sincroniza W27 a mano con STR/LDR, o NOP con la valvula apagada. La disposicion tiene que
   // ser IDENTICA en los dos modos: un ClearCache dentro de Jit() o de GlobalAdvance regenera estas rutinas en la
   // MISMA direccion y la llamada vuelve (por X30) al codigo nuevo. Asi, al apagarla, el STR viejo ya dejo la
   // verdad en memoria y el NOP nuevo no la pisa; al prenderla, la memoria era la verdad y el LDR nuevo la carga.
   STVDcGuardar(true);
-  // STV_GC_JITGF_x: el compilador lee ppcState.gpr (constantes especulativas, Trace) y un ISI no los toca, pero el
+  // STV_GC_JITGF_v1: el compilador lee ppcState.gpr (constantes especulativas, Trace) y un ISI no los toca, pero el
   // regreso puede caer en rutinas regeneradas en OTRO modo (ClearCache por falta de espacio): guardar y recargar
   // siempre, con NOP si la valvula esta apagada (misma disposicion en los tres modos, mismo argumento que W27).
   STVGfGuardar(true);
@@ -202,9 +202,9 @@ void JitArm64::GenerateAsm()
 
   SetJumpTarget(bail);
   do_timing = GetCodePtr();
-  // STV_GC_JITDC_x: fin de la tajada; desde aca el control va a C++ (GlobalAdvance o la salida).
+  // STV_GC_JITDC_v1: fin de la tajada; desde aca el control va a C++ (GlobalAdvance o la salida).
   STVDcGuardar(true);
-  // STV_GC_JITGF_x: idem para los GPR fijos: GlobalAdvance corre los eventos (VI -> PatchEngine::ApplyFramePatches
+  // STV_GC_JITGF_v1: idem para los GPR fijos: GlobalAdvance corre los eventos (VI -> PatchEngine::ApplyFramePatches
   // lee gpr[1]; Gecko::RunCodeHandler lo escribe; IOS puede reiniciar el PPC) y la salida a C++ (pausa, estados
   // guardados, depurador) lee y escribe gpr.
   STVGfGuardar(true);
@@ -219,12 +219,12 @@ void JitArm64::GenerateAsm()
   static_assert(std::to_underlying(CPU::State::Running) == 0);
   FixupBranch exit = CBNZ(ARM64Reg::W8);
 
-  // STV_GC_JITDC_x: la entrada desde C++ (enter_code) salta aca: la memoria es la verdad y el LDR de abajo carga
+  // STV_GC_JITDC_v1: la entrada desde C++ (enter_code) salta aca: la memoria es la verdad y el LDR de abajo carga
   // W27 tanto al entrar como despues de cada GlobalAdvance (que reescribe el downcount de la tajada nueva).
   SetJumpTarget(to_start_of_timing_slice);
   ARM64XEmitter::ABI_CallFunction(&CoreTiming::GlobalAdvance);
   STVDcCargar(true);
-  // STV_GC_JITGF_x: entrada desde C++ (enter_code) y regreso de GlobalAdvance: la memoria es la verdad.
+  // STV_GC_JITGF_v1: entrada desde C++ (enter_code) y regreso de GlobalAdvance: la memoria es la verdad.
   STVGfCargar(true);
 
   // When we've just entered the jit we need to update the membase
@@ -248,10 +248,10 @@ void JitArm64::GenerateAsm()
 
   dispatcher_exit = GetCodePtr();
   SetJumpTarget(exit);
-  // STV_GC_JITDC_x: salida del JIT a C++. La salida desde do_timing ya guardo (repetirlo es inocuo); la de
+  // STV_GC_JITDC_v1: salida del JIT a C++. La salida desde do_timing ya guardo (repetirlo es inocuo); la de
   // debug_exit y el B(dispatcher_exit) de los puntos de parada de los bloques no.
   STVDcGuardar(true);
-  // STV_GC_JITGF_x: idem (debug_exit y el B(dispatcher_exit) de los puntos de parada no pasan por do_timing).
+  // STV_GC_JITGF_v1: idem (debug_exit y el B(dispatcher_exit) de los puntos de parada no pasan por do_timing).
   STVGfGuardar(true);
 
   // Reset the stack pointer, since the BLR optimization may have pushed things onto the stack
