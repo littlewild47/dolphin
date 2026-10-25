@@ -3,6 +3,9 @@
 
 #include "VideoBackends/Vulkan/VKGfx.h"
 
+#include <chrono>
+#include <cstdlib>
+
 #include <cstddef>
 #include <cstdio>
 #include <utility>
@@ -324,6 +327,24 @@ bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
 
 void VKGfx::PresentBackbuffer()
 {
+  // STV_GC_LASTRE_x (SOLO EXPLORACION): debug.stv.gc.lastre = microsegundos de giro por cuadro en el hilo de video.
+  // Prueba de holgura: si la velocidad no baja con lastre, acelerar este hilo tampoco la sube.
+  static u32 stv_lastre = 0, stv_k = 0;
+#ifdef __ANDROID__
+  if ((stv_k++ % 30) == 0)
+  {
+    char v[PROP_VALUE_MAX] = {};
+    stv_lastre = __system_property_get("debug.stv.gc.lastre", v) > 0 ? static_cast<u32>(atoi(v)) : 0;
+  }
+#endif
+  if (stv_lastre)
+  {
+    const auto fin = std::chrono::steady_clock::now() + std::chrono::microseconds(stv_lastre);
+    while (std::chrono::steady_clock::now() < fin)
+    {
+    }
+  }
+
   // End drawing to backbuffer
   StateTracker::GetInstance()->EndRenderPass();
 
