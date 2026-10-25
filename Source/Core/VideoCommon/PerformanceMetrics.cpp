@@ -13,6 +13,14 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 
+#ifdef __ANDROID__
+// STV_GC_METRICAS_v1: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
+// cuadros, los VI y la velocidad de la emulacion. Instrumento del banco de GameCube de STV: no depende de que el
+// backend dibuje (backend Null) ni de capturar la pantalla.
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
+
 PerformanceMetrics::PerformanceMetrics()
 {
   const auto invalidate_counters_last_time = [this](Core::State) {
@@ -81,6 +89,20 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
 
   m_speed.store(elapsed_core_time / (clock_time - oldest.clock_time), std::memory_order_relaxed);
   m_max_speed.store(elapsed_core_time / (work_time - oldest.work_time), std::memory_order_relaxed);
+
+#ifdef __ANDROID__
+  static TimePoint stv_ultima{};
+  if (clock_time - stv_ultima >= std::chrono::seconds{1})
+  {
+    stv_ultima = clock_time;
+    char v[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
+    {
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "fps=%.2f vps=%.2f speed=%.3f max=%.3f", GetFPS(),
+                          GetVPS(), GetSpeed(), GetMaxSpeed());
+    }
+  }
+#endif
 }
 
 double PerformanceMetrics::GetFPS() const
