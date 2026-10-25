@@ -157,7 +157,10 @@ void JitArm64::bx(UGeckoInstruction inst)
     ARM64Reg XA = EncodeRegTo64(WA);
 
     MOVP2R(XA, &CoreTiming::GlobalIdle);
+    // STV_GC_JITDC_x: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
+    STVDcGuardar();
     BLR(XA);
+    STVDcCargar();
     WA.Unlock();
 
     WriteExceptionExit(js.op->branchTo);
@@ -226,7 +229,10 @@ void JitArm64::bcx(UGeckoInstruction inst)
       ARM64Reg XA = EncodeRegTo64(WA);
 
       MOVP2R(XA, &CoreTiming::GlobalIdle);
+      // STV_GC_JITDC_x: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
+      STVDcGuardar();
       BLR(XA);
+      STVDcCargar();
 
       WriteExceptionExit(js.op->branchTo);
     }
@@ -373,7 +379,10 @@ void JitArm64::bclrx(UGeckoInstruction inst)
       ARM64Reg XA = EncodeRegTo64(WA);
 
       MOVP2R(XA, &CoreTiming::GlobalIdle);
+      // STV_GC_JITDC_x: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
+      STVDcGuardar();
       BLR(XA);
+      STVDcCargar();
 
       WriteExceptionExit(js.op->branchTo);
     }
