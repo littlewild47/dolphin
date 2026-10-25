@@ -163,12 +163,16 @@ protected:
   bool m_fastmem_enabled = false;
   bool m_page_table_fastmem_enabled = false;
   bool m_accurate_cpu_cache_enabled = false;
+  // STV_GC_JITDC_x (EXPLORACION): con la valvula prendida, JitArm64 guarda el contador de ciclos
+  // (ppcState.downcount) en W27 dentro del codigo JIT. Esta en JIT_SETTINGS para que cambiarla vacie la
+  // cache (y regenere las rutinas comunes) en el mismo ClearCache que la aplica.
+  bool m_stv_dc_reg = false;
 
   bool m_enable_blr_optimization = false;
   bool m_cleanup_after_stackfault = false;
   u8* m_stack_guard = nullptr;
 
-  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 25> JIT_SETTINGS;
+  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JIT_SETTINGS;
 
   bool DoesConfigNeedRefresh() const;
   void RefreshConfig();

@@ -443,7 +443,7 @@ void Arm64GPRCache::GetAllocationOrder()
   // Callee saved registers first in hopes that we will keep everything stored there first
   static constexpr auto allocation_order = {
       // Callee saved
-      ARM64Reg::W27,
+      // STV_GC_JITDC_x: W27 es DOWNCOUNT_REG, fuera del pool.
       ARM64Reg::W26,
       ARM64Reg::W25,
       ARM64Reg::W24,

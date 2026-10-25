@@ -58,6 +58,34 @@ public:
 
   const char* GetName() const override { return "JITARM64"; }
 
+  // STV_GC_JITDC_x (EXPLORACION): con la valvula STVDowncountReg prendida, el contador de ciclos vive en
+  // DOWNCOUNT_REG (W27) dentro del codigo JIT. Invariante: siempre que el control esta en C++,
+  // ppcState.downcount == W27. Por eso toda llamada del codigo JIT a C++ pasa por estos envoltorios, que tapan
+  // a los de ARM64XEmitter: STR W27 antes, LDR W27 despues (el C++ puede leer o reescribir el downcount:
+  // ForceExceptionCheck, Idle, GetTicks). Con la valvula apagada emiten exactamente lo mismo que antes.
+  // Las rutinas del despachador (JitAsm.cpp) NO usan estos envoltorios: llaman a la version de ARM64XEmitter y
+  // sincronizan a mano con STVDcGuardar/STVDcCargar(true), que emiten NOP con la valvula apagada para que la
+  // disposicion sea identica en los dos modos (ver JitAsm.cpp).
+  bool STVDcReg() const { return m_stv_dc_reg; }
+  void STVDcGuardar(bool nop_si_apagada = false);
+  void STVDcCargar(bool nop_si_apagada = false);
+
+  template <typename FuncRet, typename... FuncArgs, typename... Args>
+  void ABI_CallFunction(FuncRet (*func)(FuncArgs...), Args... args)
+  {
+    STVDcGuardar();
+    Arm64Gen::ARM64XEmitter::ABI_CallFunction(func, args...);
+    STVDcCargar();
+  }
+
+  template <typename FuncRet, typename... FuncArgs, typename... Args>
+  void ABI_CallLambdaFunction(const std::function<FuncRet(FuncArgs...)>* f, Args... args)
+  {
+    STVDcGuardar();
+    Arm64Gen::ARM64XEmitter::ABI_CallLambdaFunction(f, args...);
+    STVDcCargar();
+  }
+
   // OPCODES
   using Instruction = void (JitArm64::*)(UGeckoInstruction);
   void FallBackToInterpreter(UGeckoInstruction inst);
