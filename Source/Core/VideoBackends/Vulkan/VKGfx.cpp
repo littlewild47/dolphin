@@ -26,6 +26,10 @@
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoConfig.h"
 
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 namespace Vulkan
 {
 VKGfx::VKGfx(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
@@ -221,7 +225,19 @@ bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
 {
   StateTracker::GetInstance()->EndRenderPass();
 
-  g_command_buffer_mgr->WaitForWorkerThreadIdle();
+  // STV_GC_SINESPERA_x (SOLO EXPLORACION, viola la sincronizacion externa de la cadena): con
+  // debug.stv.gc.sinespera=1 no espera a que el hilo de envio termine la presentacion anterior antes de adquirir.
+  static bool stv_sin = false;
+  static u32 stv_n = 0;
+#ifdef __ANDROID__
+  if ((stv_n++ % 30) == 0)
+  {
+    char v[PROP_VALUE_MAX] = {};
+    stv_sin = __system_property_get("debug.stv.gc.sinespera", v) > 0 && v[0] == '1';
+  }
+#endif
+  if (!stv_sin)
+    g_command_buffer_mgr->WaitForWorkerThreadIdle();
 
   // Handle host window resizes.
   CheckForSurfaceChange();
