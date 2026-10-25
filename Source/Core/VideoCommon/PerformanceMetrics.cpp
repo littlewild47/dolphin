@@ -127,7 +127,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
     // STV_GC_JITDUMP_x (EXPLORACION): con [Debug] JitEnableProfiling = True, debug.stv.gc.jitdump = "w<n>" pone en
-    // cero los contadores por bloque y "d<n>" escribe la tabla de Dolphin (WriteProfileResults: direccion, tamano en
+    // cero los contadores por bloque y "d<n>" escribe la tabla de Dolphin (JitBlockLogDump: direccion, tamano en
     // el juego y nativo, ejecuciones, ciclos y tiempo) en files/perf/jitdump-<pid>.tsv. Corre en el hilo de CPU.
     {
       char jd[PROP_VALUE_MAX] = {};
@@ -148,7 +148,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
               "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/jitdump-{}.tsv", getpid());
           if (std::FILE* f = std::fopen(ruta.c_str(), "w"))
           {
-            system.GetJitInterface().WriteProfileResults(guard, f);
+            system.GetJitInterface().JitBlockLogDump(guard, f);
             std::fclose(f);
             __android_log_print(ANDROID_LOG_INFO, "STVGC", "jitdump: %s", ruta.c_str());
           }
