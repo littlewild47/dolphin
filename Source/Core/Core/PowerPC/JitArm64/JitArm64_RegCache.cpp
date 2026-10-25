@@ -33,6 +33,14 @@ void Arm64RegCache::ResetRegisters(BitSet32 regs)
 {
   for (int i : regs)
   {
+    // STV_GC_JITGF_v1: un GPR fijo no vuelve a "solo en ppcState": quien llama (FallBackToInterpreter) ya recargo
+    // los fijos desde ppcState despues del interprete; aca solo se marca el estado.
+    if (STVEsFijo(i))
+    {
+      STVFijoEnHost(i);
+      continue;
+    }
+
     OpArg& reg = m_guest_registers[i];
     ARM64Reg host_reg = reg.GetReg();
 
@@ -114,7 +122,8 @@ void Arm64RegCache::FlushMostStaleRegister()
     const auto& reg = m_guest_registers[i];
     const u32 last_used = reg.GetLastUsed();
 
-    if (last_used > most_stale_amount && reg.IsInHostRegister())
+    // STV_GC_JITGF_v1: los GPR fijos no estan en el pool: vaciarlos no libera nada.
+    if (last_used > most_stale_amount && reg.IsInHostRegister() && !STVEsFijo(i))
     {
       most_stale_preg = i;
       most_stale_amount = last_used;
@@ -126,6 +135,11 @@ void Arm64RegCache::FlushMostStaleRegister()
 
 void Arm64RegCache::DiscardRegister(size_t preg)
 {
+  // STV_GC_JITGF_v1: descartar un GPR fijo no libera nada (no esta en el pool) y no ahorra ningun STR; se ignora
+  // y el registro sigue "en su registro" (o como inmediato), con un valor que el analizador ya declaro muerto.
+  if (STVEsFijo(preg))
+    return;
+
   OpArg& reg = m_guest_registers[preg];
   ARM64Reg host_reg = reg.GetReg();
   if (!IsVector(host_reg))
@@ -142,6 +156,69 @@ Arm64GPRCache::Arm64GPRCache() : Arm64RegCache(GUEST_GPR_COUNT + GUEST_CR_COUNT)
 
 void Arm64GPRCache::Start(PPCAnalyst::BlockRegStats& stats)
 {
+  // STV_GC_JITGF_v1: al entrar a un bloque cada GPR fijo esta en su registro (invariante entre bloques).
+  if (m_stv_gf != 0)
+  {
+    for (size_t i = 0; i < GUEST_GPR_COUNT; ++i)
+    {
+      if (STVEsFijo(i))
+        STVFijoEnHost(i);
+    }
+  }
+}
+
+// STV_GC_JITGF_v1: el GPR fijo queda en su registro y "sincronizado" (en modo 2, tambien igual a ppcState).
+void Arm64GPRCache::STVFijoEnHost(size_t index)
+{
+  OpArg& reg = m_guest_registers[GUEST_GPR_OFFSET + index];
+  reg.Load(STVGfHost(index));
+  reg.SetDirty(false);
+}
+
+// STV_GC_JITGF_v1: cambia el modo y reconstruye el orden de asignacion (con la valvula, sin W19-W24). Se llama con la
+// cache vacia; todo invitado vuelve a "solo en ppcState" y Start() vuelve a enlazar los fijos en cada bloque.
+void Arm64GPRCache::STVGfConfigurar(int modo)
+{
+  if (modo == m_stv_gf)
+    return;
+  m_stv_gf = modo;
+  for (auto& reg : m_guest_registers)
+    reg.Flush();
+  m_host_registers.clear();
+  GetAllocationOrder();
+}
+
+// STV_GC_JITGF_v1: vaciado de un GPR fijo. Nunca libera el registro. Modo 1: no escribe ppcState (la verdad es el
+// registro); solo materializa un inmediato de la propagacion de constantes en el registro fijo. Modo 2: ademas
+// escribe ppcState como siempre (write-through), para que la verificacion al entrar al bloque compare.
+// Estados: en registro (IsInHostRegister), inmediato (IsImm, sin registro; el registro esta rancio salvo que
+// IsInPPCState diga que ya tiene el valor), descartado (no se produce: DiscardRegister ignora los fijos).
+void Arm64GPRCache::STVFlushFijo(size_t index, FlushMode mode)
+{
+  OpArg& reg = m_guest_registers[GUEST_GPR_OFFSET + index];
+  const ARM64Reg host_reg = STVGfHost(index);
+  const u32 ppc_offset = u32(PPCSTATE_OFF_GPR(index));
+
+  if (reg.IsInHostRegister())
+  {
+    if (m_stv_gf == 2 && !reg.IsInPPCState())
+      m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, ppc_offset);
+    if (mode != FlushMode::MaintainState)
+      reg.SetDirty(false);
+    return;
+  }
+
+  if (IsImm(index) && !reg.IsInPPCState())
+  {
+    // El valor logico es el inmediato: escribirlo en el registro fijo es correcto en cualquier camino (tambien en
+    // MaintainState, donde el estado de la cache no cambia).
+    m_emit->MOVI2R(host_reg, GetImm(index));
+    if (m_stv_gf == 2)
+      m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, ppc_offset);
+  }
+
+  if (mode != FlushMode::MaintainState)
+    STVFijoEnHost(index);
 }
 
 // Returns if a register is set as an immediate. Only valid for guest GPRs.
@@ -192,6 +269,13 @@ Arm64GPRCache::GuestRegInfo Arm64GPRCache::GetGuestByIndex(size_t index)
 
 void Arm64GPRCache::FlushRegister(size_t index, FlushMode mode, ARM64Reg tmp_reg)
 {
+  // STV_GC_JITGF_v1
+  if (STVEsFijo(index))
+  {
+    STVFlushFijo(index, mode);
+    return;
+  }
+
   GuestRegInfo guest_reg = GetGuestByIndex(index);
   OpArg& reg = guest_reg.reg;
   size_t bitsize = guest_reg.bitsize;
@@ -258,6 +342,16 @@ void Arm64GPRCache::FlushRegister(size_t index, FlushMode mode, ARM64Reg tmp_reg
 void Arm64GPRCache::FlushRegisters(BitSet32 regs, FlushMode mode, ARM64Reg tmp_reg,
                                    IgnoreDiscardedRegisters ignore_discarded_registers)
 {
+  // STV_GC_JITGF_v1: los fijos se vacian aparte (sin STP: no se emparejan) y el resto sigue como siempre, asi los
+  // pares de no fijos (p. ej. r5/r6) se siguen guardando con un STP.
+  if (m_stv_gf != 0)
+  {
+    const BitSet32 fijos = regs & BitSet32(STV_GF_MASCARA);
+    for (int i : fijos)
+      STVFlushFijo(i, mode);
+    regs &= ~BitSet32(STV_GF_MASCARA);
+  }
+
   for (auto iter = regs.begin(); iter != regs.end(); ++iter)
   {
     const int i = *iter;
@@ -362,6 +456,19 @@ ARM64Reg Arm64GPRCache::BindForRead(size_t index)
   IncrementAllUsed();
   reg.ResetLastUsed();
 
+  // STV_GC_JITGF_v1: el GPR fijo se lee de su registro; si es un inmediato no materializado, primero MOVI2R ahi.
+  if (STVEsFijo(index))
+  {
+    const ARM64Reg host_reg = STVGfHost(index);
+    if (!reg.IsInHostRegister())
+    {
+      if (IsImm(index - GUEST_GPR_OFFSET) && !reg.IsInPPCState())
+        m_emit->MOVI2R(host_reg, GetImm(index - GUEST_GPR_OFFSET));
+      reg.Load(host_reg);
+    }
+    return host_reg;
+  }
+
   if (reg.IsInHostRegister())
   {
     return reg.GetReg();
@@ -388,7 +495,9 @@ void Arm64GPRCache::SetImmediateInternal(size_t index, u32 imm, bool dirty)
 {
   GuestRegInfo guest_reg = GetGuestByIndex(index);
   OpArg& reg = guest_reg.reg;
-  if (reg.IsInHostRegister())
+  // STV_GC_JITGF_v1: el registro fijo no se desbloquea (no esta en el pool); queda como inmediato pendiente de
+  // materializar (dirty) o ya presente en el registro (dirty = false: quien llama garantiza que lo tiene).
+  if (reg.IsInHostRegister() && !STVEsFijo(index))
     UnlockRegister(EncodeRegTo32(reg.GetReg()));
   reg.Discard();
   reg.SetDirty(dirty);
@@ -403,6 +512,24 @@ void Arm64GPRCache::BindForWrite(size_t index, bool will_read, bool will_write)
   const bool is_gpr = IsIndexGPR(index);
 
   reg.ResetLastUsed();
+
+  // STV_GC_JITGF_v1: el GPR fijo se escribe en su registro. Nunca hace falta LDR: el valor ya esta ahi.
+  if (STVEsFijo(index))
+  {
+    if (!reg.IsInHostRegister())
+    {
+      const ARM64Reg host_reg = STVGfHost(index);
+      if (IsImm(index - GUEST_GPR_OFFSET) && !reg.IsInPPCState() && (will_read || !will_write))
+        m_emit->MOVI2R(host_reg, GetImm(index - GUEST_GPR_OFFSET));
+      reg.Load(host_reg);
+    }
+    if (will_write)
+    {
+      reg.SetDirty(true);
+      m_jit->GetConstantPropagation().ClearGPR(index - GUEST_GPR_OFFSET);
+    }
+    return;
+  }
 
   if (!reg.IsInHostRegister())
   {
@@ -476,7 +603,12 @@ void Arm64GPRCache::GetAllocationOrder()
   };
 
   for (ARM64Reg reg : allocation_order)
+  {
+    // STV_GC_JITGF_v1: con la valvula, W19-W24 son de los GPR fijos (pool 27 -> 21).
+    if (m_stv_gf != 0 && reg >= ARM64Reg::W19 && reg <= ARM64Reg::W24)
+      continue;
     m_host_registers.push_back(HostReg(reg));
+  }
 }
 
 BitSet32 Arm64GPRCache::GetCallerSavedUsed() const
