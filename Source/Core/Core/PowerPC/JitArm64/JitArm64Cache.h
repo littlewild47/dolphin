@@ -12,6 +12,13 @@ class JitBase;
 
 typedef void (*CompiledCode)();
 
+// STV_GC_JITPF_x (EXPLORACION): prefetch a la L2 del codigo de los bloques destino. Si esta
+// prendido, cada bloque nuevo reserva al entrar (normalEntry) un hueco de STV_PF_HUECO bytes, y al
+// enlazar una de sus dos primeras salidas se escribe en el sub-hueco correspondiente
+// ADRP X17 + 2 x PRFM PLDL2KEEP hacia las dos primeras lineas de 64 B del destino. Se lee al
+// compilar y al enlazar; la valvula debug.stv.gc.jit "pf=0|1" lo cambia y vacia la cache del JIT.
+extern bool g_stv_jit_pf;
+
 class JitArm64BlockCache : public JitBaseBlockCache
 {
 public:
@@ -31,6 +38,14 @@ public:
 
   static constexpr size_t BLOCK_LINK_SIZE = 3 * sizeof(u32);
   static constexpr size_t BLOCK_LINK_FAST_BL_OFFSET = BLOCK_LINK_SIZE - sizeof(u32);
+
+  // STV_GC_JITPF_x: un sub-hueco por destino (3 instrucciones), dos destinos por bloque.
+  static constexpr size_t STV_PF_DESTINOS = 2;
+  static constexpr size_t STV_PF_SUBHUECO = 3 * sizeof(u32);
+  static constexpr size_t STV_PF_HUECO = STV_PF_DESTINOS * STV_PF_SUBHUECO;
+  // Escribe un sub-hueco en la posicion actual de emit: con destino (y a alcance de ADRP), el
+  // prefetch hacia el; si no, "B +12; NOP; NOP" (lo saltea). Siempre STV_PF_SUBHUECO bytes.
+  static void StvPfEscribir(Arm64Gen::ARM64XEmitter& emit, const u8* destino);
 
 private:
   void WriteLinkBlock(const JitBlock::LinkData& source, const JitBlock* dest) override;

@@ -27,6 +27,10 @@
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
+#if defined(_M_ARM_64)
+// STV_GC_JITPF_x: interruptor g_stv_jit_pf del JIT ARM64.
+#include "Core/PowerPC/JitArm64/JitArm64Cache.h"
+#endif
 #endif
 
 PerformanceMetrics::PerformanceMetrics()
@@ -126,6 +130,59 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    // STV_GC_JITVALV_x / STV_GC_JITPF_x (EXPLORACION): debug.stv.gc.jit = "f=0|1 r=0|1 pf=0|1".
+    // f y r ponen AccurateFmadds y JITFollowBranch en la capa actual (Dolphin los toma en el proximo
+    // CheckForConfigChanges y vacia la cache del JIT). Las claves se buscan como palabra (al
+    // principio o tras un espacio o una coma): "pf=" contiene "f=" y no tiene que confundirse.
+    {
+      char j[PROP_VALUE_MAX] = {};
+      static std::string stv_jit_prev;
+      if (__system_property_get("debug.stv.gc.jit", j) > 0 && stv_jit_prev != j)
+      {
+        stv_jit_prev = j;
+        const std::string q = j;
+        const auto clave = [&q](const char* k) -> int {
+          const size_t n = std::char_traits<char>::length(k);
+          for (size_t p = q.find(k); p != std::string::npos; p = q.find(k, p + 1))
+          {
+            if (p != 0 && q[p - 1] != ' ' && q[p - 1] != ',')
+              continue;
+            if (p + n < q.size() && (q[p + n] == '0' || q[p + n] == '1'))
+              return q[p + n] - '0';
+            return -1;
+          }
+          return -1;
+        };
+        const int f = clave("f="), r = clave("r=");
+        if (f >= 0)
+          Config::SetCurrent(Config::MAIN_ACCURATE_FMADDS, f == 1);
+        if (r >= 0)
+          Config::SetCurrent(Config::MAIN_JIT_FOLLOW_BRANCH, r == 1);
+#if defined(_M_ARM_64)
+        // STV_GC_JITPF_x: "pf=0|1" pone g_stv_jit_pf y, si cambio, vacia la cache del JIT para que
+        // todo se recompile con (o sin) hueco de prefetch. Es seguro aca por lo mismo que en
+        // stv/jit-far (478ab9491b): esto corre en el hilo de CPU dentro de CoreTiming::Advance
+        // (evento del VI -> Throttle -> CountPerformanceMarker), llamado desde la rutina do_timing
+        // del JIT: el mismo contexto en que CheckForConfigChanges (al principio de Advance) ya
+        // llama a JitBase::ClearCache. Al volver de Advance, do_timing salta a
+        // dispatcher_no_check, que no encuentra bloque (blocks.Clear vacio los puntos de entrada),
+        // hace ResetStack (descarta las direcciones de retorno de la pila del blr, que apuntaban a
+        // codigo borrado) y recompila. Ningun puntero a codigo JIT queda vivo en la pila de C++:
+        // do_timing es parte de las rutinas, que GenerateAsm reescribe identicas en el mismo
+        // lugar. Con el hilo de CPU, CPUThreadGuard no pausa nada (solo documenta el contrato);
+        // fuera de ese hilo no se toca nada.
+        const int pf = clave("pf=");
+        if (pf >= 0 && Core::IsCPUThread() && (pf == 1) != g_stv_jit_pf)
+        {
+          g_stv_jit_pf = pf == 1;
+          auto& system = Core::System::GetInstance();
+          system.GetJitInterface().ClearCache(Core::CPUThreadGuard{system});
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: pf=%d (cache del JIT vaciada)", pf);
+        }
+#endif
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: %s", j);
+      }
+    }
     // STV_GC_JITDUMP_x (EXPLORACION): con [Debug] JitEnableProfiling = True, debug.stv.gc.jitdump = "w<n>" pone en
     // cero los contadores por bloque y "d<n>" escribe la tabla de Dolphin (JitBlockLogDump: direccion, tamano en
     // el juego y nativo, ejecuciones, ciclos y tiempo) en files/perf/jitdump-<pid>.tsv. Corre en el hilo de CPU.

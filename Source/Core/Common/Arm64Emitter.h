@@ -1001,6 +1001,8 @@ public:
   void LDR(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm);
   void LDRSW(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm);
   void PRFM(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm);
+  // STV_GC_JITPF_x: PRFM <prfop>, [Xn, #imm] (offset sin signo, multiplo de 8, 0..32760).
+  void PRFMUnsigned(ARM64Reg prfop, ARM64Reg Rn, u32 imm);
 
   // Load/Store register (unscaled offset)
   void STURB(ARM64Reg Rt, ARM64Reg Rn, s32 imm);

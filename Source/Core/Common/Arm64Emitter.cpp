@@ -1726,6 +1726,14 @@ void ARM64XEmitter::PRFM(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
   EncodeLoadStoreRegisterOffset(3, 2, Rt, Rn, Rm);
 }
 
+// STV_GC_JITPF_x: PRFM (immediate, unsigned offset). prfop es PLDL1KEEP..PSTL3STRM; Rn un registro X.
+void ARM64XEmitter::PRFMUnsigned(ARM64Reg prfop, ARM64Reg Rn, u32 imm)
+{
+  ASSERT_MSG(DYNA_REC, (imm & 7) == 0 && imm <= 32760, "PRFM offset invalido {}", imm);
+  ASSERT_MSG(DYNA_REC, Is64Bit(Rn) || Rn == ARM64Reg::SP, "PRFM base no es de 64 bits");
+  Write32(0xF9800000u | ((imm >> 3) << 10) | (DecodeReg(Rn) << 5) | DecodeReg(prfop));
+}
+
 // Load/Store register (unscaled offset)
 void ARM64XEmitter::STURB(ARM64Reg Rt, ARM64Reg Rn, s32 imm)
 {

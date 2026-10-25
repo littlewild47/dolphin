@@ -93,6 +93,9 @@ struct JitBlock : public JitBlockData
     u8* exitPtrs;  // to be able to rewrite the exit jump
 #ifdef _M_ARM_64
     const u8* exitFarcode;
+    // STV_GC_JITPF_x: sub-hueco de prefetch (al principio del bloque fuente) que corresponde a esta
+    // salida, o nullptr si el bloque se compilo sin hueco o la salida no tiene lugar (indice >= 2).
+    u8* stvPfHueco = nullptr;
 #endif
     u32 exitAddress;
     bool linkStatus;  // is it already linked?

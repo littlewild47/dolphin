@@ -9,6 +9,43 @@
 
 using namespace Arm64Gen;
 
+// STV_GC_JITPF_x: prendido por defecto (ver JitArm64Cache.h).
+bool g_stv_jit_pf = true;
+
+// STV_GC_JITPF_x: registro temporal del prefetch. X17 (IP1) es de los guardados por el llamador y
+// esta muerto al entrar a cualquier bloque: en normalEntry el JIT puede emitir ABI_CallFunction
+// (perfilado) y el chequeo de GQR usa W0 sin guardar nada, y gpr.Start() arranca sin registros del
+// juego cargados en el anfitrion. ADRP y PRFM no tocan las banderas NZCV ni la memoria.
+static constexpr ARM64Reg STV_PF_REG = ARM64Reg::X17;
+
+void JitArm64BlockCache::StvPfEscribir(ARM64XEmitter& emit, const u8* destino)
+{
+  const u8* pc = emit.GetCodePtr();
+  if (destino)
+  {
+    // Primera linea de 64 B del destino: su offset dentro de la pagina es multiplo de 64, asi que
+    // entra en el inmediato de PRFM (escalado por 8) sin ADD. La segunda linea es +64 (<= 4096).
+    const u64 linea = reinterpret_cast<u64>(destino) & ~u64{63};
+    const s64 dpag = static_cast<s64>(linea & ~u64{0xFFF}) -
+                     static_cast<s64>(reinterpret_cast<u64>(pc) & ~u64{0xFFF});
+    // ADRP alcanza +-4 GB (21 bits de paginas con signo).
+    if (dpag >= -(s64{1} << 32) && dpag < (s64{1} << 32))
+    {
+      const u32 lo = static_cast<u32>(linea & 0xFFF);
+      emit.ADRP(STV_PF_REG, dpag);
+      emit.PRFMUnsigned(ARM64Reg::PLDL2KEEP, STV_PF_REG, lo);
+      emit.PRFMUnsigned(ARM64Reg::PLDL2KEEP, STV_PF_REG, lo + 64);
+      DEBUG_ASSERT(emit.GetCodePtr() == pc + STV_PF_SUBHUECO || emit.HasWriteFailed());
+      return;
+    }
+  }
+  // Sin destino: se saltea el sub-hueco (1 instruccion ejecutada en vez de 3).
+  emit.B(pc + STV_PF_SUBHUECO);
+  emit.NOP();
+  emit.NOP();
+  DEBUG_ASSERT(emit.GetCodePtr() == pc + STV_PF_SUBHUECO || emit.HasWriteFailed());
+}
+
 JitArm64BlockCache::JitArm64BlockCache(JitBase& jit) : JitBaseBlockCache{jit}
 {
 }
@@ -89,6 +126,20 @@ void JitArm64BlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const 
 
   WriteLinkBlock(emit, source, dest);
   emit.FlushIcache();
+
+  // STV_GC_JITPF_x: al enlazar, el sub-hueco de esta salida pasa a precargar el destino. Mismo
+  // contexto que la reescritura del salto de arriba (hilo de CPU, ningun bloque ejecutandose: se
+  // llega desde Jit() via FinalizeBlock/LinkBlock, o desde la invalidacion), con la pagina escribible
+  // y la cache de instrucciones invalidada en el rango. Al DESENLAZAR (dest == nullptr) no se toca:
+  // un PRFM hacia codigo viejo o liberado es inofensivo (es una pista, nunca falla ni lee de verdad),
+  // y reescribirlo podria pisar el BRK que WriteDestroyBlock deja en normalEntry del bloque fuente.
+  if (dest && g_stv_jit_pf && source.stvPfHueco)
+  {
+    u8* hueco = source.stvPfHueco;
+    ARM64XEmitter emit_pf(hueco, hueco + STV_PF_SUBHUECO);
+    StvPfEscribir(emit_pf, dest->normalEntry);
+    emit_pf.FlushIcache();
+  }
 }
 
 void JitArm64BlockCache::WriteDestroyBlock(const JitBlock& block)

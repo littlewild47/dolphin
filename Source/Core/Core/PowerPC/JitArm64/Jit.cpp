@@ -1172,6 +1172,17 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
   b->normalEntry = GetWritableCodePtr();
 
+  // STV_GC_JITPF_x: hueco de prefetch al entrar al bloque, antes de todo lo demas (en normalEntry,
+  // que es el unico punto de entrada: lo usan el despachador, la cache rapida y los enlaces). Nace
+  // salteado ("B +12; NOP; NOP" por destino); WriteLinkBlock lo llena al enlazar cada salida.
+  u8* stv_pf_hueco = nullptr;
+  if (g_stv_jit_pf)
+  {
+    stv_pf_hueco = GetWritableCodePtr();
+    for (size_t k = 0; k < JitArm64BlockCache::STV_PF_DESTINOS; k++)
+      JitArm64BlockCache::StvPfEscribir(*this, nullptr);
+  }
+
   // Conditionally add profiling code.
   if (IsProfilingEnabled())
     ABI_CallFunction(&JitBlock::ProfileData::BeginProfiling, b->profile_data.get());
@@ -1443,6 +1454,15 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     WriteExit(nextPC);
+  }
+
+  // STV_GC_JITPF_x: las dos primeras salidas (en el orden de linkData: la del salto condicional o
+  // de la llamada primero, la de caida o de retorno despues) apuntan a su sub-hueco. Se asigna
+  // antes de FinalizeBlock, que es quien enlaza.
+  if (stv_pf_hueco)
+  {
+    for (size_t k = 0; k < b->linkData.size() && k < JitArm64BlockCache::STV_PF_DESTINOS; k++)
+      b->linkData[k].stvPfHueco = stv_pf_hueco + k * JitArm64BlockCache::STV_PF_SUBHUECO;
   }
 
   if (HasWriteFailed() || m_far_code.HasWriteFailed())
