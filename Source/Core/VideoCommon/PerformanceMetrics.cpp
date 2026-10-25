@@ -163,6 +163,23 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_JITDC_x (EXPLORACION): debug.stv.gc.dc = 0|1 apaga/prende el downcount en W27 del JIT ARM64. Esta en
+    // la tabla de ajustes del JIT: el proximo CheckForConfigChanges (dentro de GlobalAdvance) vacia la cache y
+    // regenera las rutinas en el mismo ClearCache que aplica el valor nuevo.
+    {
+      char dc[PROP_VALUE_MAX] = {};
+      static int stv_dc_prev = -1;
+      if (__system_property_get("debug.stv.gc.dc", dc) > 0 && (dc[0] == '0' || dc[0] == '1'))
+      {
+        const int n = dc[0] - '0';
+        if (n != stv_dc_prev)
+        {
+          stv_dc_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_DOWNCOUNT_REG, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: dc=%d", n);
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {

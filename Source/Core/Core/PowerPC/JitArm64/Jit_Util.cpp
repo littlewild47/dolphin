@@ -16,7 +16,10 @@ template <typename T>
 class MMIOWriteCodeGenerator : public MMIO::WriteHandlingMethodVisitor<T>
 {
 public:
-  MMIOWriteCodeGenerator(Core::System* system, ARM64XEmitter* emit, BitSet32 gprs_in_use,
+  // STV_GC_JITDC_x: el emisor es el JitArm64 (no un ARM64XEmitter suelto) para que ABI_CallLambdaFunction pase
+  // por su envoltorio, que sincroniza W27 con ppcState.downcount alrededor de los manejadores MMIO complejos
+  // (pueden programar eventos: ForceExceptionCheck reescribe el downcount).
+  MMIOWriteCodeGenerator(Core::System* system, JitArm64* emit, BitSet32 gprs_in_use,
                          BitSet32 fprs_in_use, ARM64Reg src_reg, u32 address)
       : m_system(system), m_emit(emit), m_gprs_in_use(gprs_in_use), m_fprs_in_use(fprs_in_use),
         m_src_reg(src_reg), m_address(address)
@@ -86,7 +89,7 @@ private:
   }
 
   Core::System* m_system;
-  ARM64XEmitter* m_emit;
+  JitArm64* m_emit;
   BitSet32 m_gprs_in_use;
   BitSet32 m_fprs_in_use;
   ARM64Reg m_src_reg;
@@ -97,7 +100,8 @@ template <typename T>
 class MMIOReadCodeGenerator : public MMIO::ReadHandlingMethodVisitor<T>
 {
 public:
-  MMIOReadCodeGenerator(Core::System* system, ARM64XEmitter* emit, BitSet32 gprs_in_use,
+  // STV_GC_JITDC_x: ver MMIOWriteCodeGenerator.
+  MMIOReadCodeGenerator(Core::System* system, JitArm64* emit, BitSet32 gprs_in_use,
                         BitSet32 fprs_in_use, ARM64Reg dst_reg, u32 address, bool sign_extend)
       : m_system(system), m_emit(emit), m_gprs_in_use(gprs_in_use), m_fprs_in_use(fprs_in_use),
         m_dst_reg(dst_reg), m_address(address), m_sign_extend(sign_extend)
@@ -187,7 +191,7 @@ private:
   }
 
   Core::System* m_system;
-  ARM64XEmitter* m_emit;
+  JitArm64* m_emit;
   BitSet32 m_gprs_in_use;
   BitSet32 m_fprs_in_use;
   ARM64Reg m_dst_reg;
@@ -299,7 +303,7 @@ ARM64Reg ByteswapBeforeStore(ARM64XEmitter* emit, ARM64FloatEmitter* float_emit,
   return dst_reg;
 }
 
-void MMIOLoadToReg(Core::System& system, MMIO::Mapping* mmio, ARM64XEmitter* emit,
+void MMIOLoadToReg(Core::System& system, MMIO::Mapping* mmio, JitArm64* emit,
                    ARM64FloatEmitter* float_emit, BitSet32 gprs_in_use, BitSet32 fprs_in_use,
                    ARM64Reg dst_reg, u32 address, u32 flags)
 {
@@ -327,7 +331,7 @@ void MMIOLoadToReg(Core::System& system, MMIO::Mapping* mmio, ARM64XEmitter* emi
   ByteswapAfterLoad(emit, float_emit, dst_reg, dst_reg, flags, false, true);
 }
 
-void MMIOWriteRegToAddr(Core::System& system, MMIO::Mapping* mmio, ARM64XEmitter* emit,
+void MMIOWriteRegToAddr(Core::System& system, MMIO::Mapping* mmio, JitArm64* emit,
                         ARM64FloatEmitter* float_emit, BitSet32 gprs_in_use, BitSet32 fprs_in_use,
                         ARM64Reg src_reg, u32 address, u32 flags)
 {
