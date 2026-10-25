@@ -351,8 +351,8 @@ float3 load_input_float3_rawtex(uint vtx_offset, uint attr_offset) {{
     out.Write("  bool is_bottom = (gl_VertexID & 2) != 0;\n"
               "  bool is_right = (gl_VertexID & 1) != 0;\n"
               "  uint other_base_offset = vertex_base_offset;\n"
-              "  if (is_bottom) {{\n"
-              "    other_base_offset -= vertex_stride;\n"
+              "  if (is_bottom) {{\n"  // STV_GC_LINEA_v1: nunca por debajo del comienzo del buffer
+              "    other_base_offset = other_base_offset >= vertex_stride ? other_base_offset - vertex_stride : other_base_offset;\n"
               "  }} else {{\n"
               "    other_base_offset += vertex_stride;\n"
               "  }}\n"

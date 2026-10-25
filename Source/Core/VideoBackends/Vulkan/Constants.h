@@ -15,7 +15,10 @@ namespace Vulkan
 constexpr size_t NUM_COMMAND_BUFFERS = 8;
 
 // Number of frames in flight, will be used to decide how many descriptor pools are used
-constexpr size_t NUM_FRAMES_IN_FLIGHT = 2;
+// STV_GC_VUELO_v1: 3 cuadros en vuelo (Dolphin: 2). En la Mali-G57 de la consola STV el hilo de video pasaba el 23 %
+// esperando la valla del cuadro anterior (Twilight Princess, bosque); con 3: 82 -> 90 % de velocidad. Cuantos se
+// usan lo decide CommandBufferManager (debug.stv.gc.vuelo = 2 vuelve a lo de Dolphin).
+constexpr size_t NUM_FRAMES_IN_FLIGHT = 3;
 
 // Staging buffer usage - optimize for uploads or readbacks
 enum STAGING_BUFFER_TYPE
@@ -85,7 +88,11 @@ constexpr u32 NUM_UTILITY_PIXEL_SAMPLERS = 8;
 constexpr u32 NUM_COMPUTE_TEXEL_BUFFERS = 2;
 
 // Textures that don't fit into this buffer will be uploaded with a separate buffer (see below).
+#ifdef ANDROID
+constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 8 * 1024 * 1024;  // STV_GC_MEMORIA_v1
+#else
 constexpr u32 TEXTURE_UPLOAD_BUFFER_SIZE = 32 * 1024 * 1024;
+#endif
 
 // Textures greater than 1024*1024 will be put in staging textures that are released after
 // execution instead. A 2048x2048 texture is 16MB, and we'd only fit four of these in our

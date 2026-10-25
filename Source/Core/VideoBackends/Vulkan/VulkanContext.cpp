@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "VideoBackends/Vulkan/VulkanContext.h"
+#include "VideoBackends/Vulkan/VKGrabador.h"
 
 #include <algorithm>
 #include <array>
@@ -821,6 +822,9 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
   if (!LoadVulkanDeviceFunctions(m_device))
     return false;
 
+  // STV_GC_GRABADOR_v1: engancha los punteros recien cargados (antes de crear VMA, que copia los mismos).
+  Grabador::Iniciar();
+
   // Grab the graphics and present queues.
   vkGetDeviceQueue(m_device, m_graphics_queue_family_index, 0, &m_graphics_queue);
   if (surface)
@@ -836,7 +840,11 @@ bool VulkanContext::CreateAllocator(u32 vk_api_version)
   allocator_info.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
   allocator_info.physicalDevice = m_physical_device;
   allocator_info.device = m_device;
+#ifdef ANDROID
+  allocator_info.preferredLargeHeapBlockSize = 16 << 20;  // STV_GC_MEMORIA_v1
+#else
   allocator_info.preferredLargeHeapBlockSize = 64 << 20;
+#endif
   allocator_info.pAllocationCallbacks = nullptr;
   allocator_info.pDeviceMemoryCallbacks = nullptr;
   allocator_info.pHeapSizeLimit = nullptr;

@@ -3,6 +3,9 @@
 
 #include "VideoCommon/ShaderCache.h"
 
+#include <atomic>
+#include <chrono>
+
 #include <utility>
 
 #include <fmt/format.h>
@@ -28,6 +31,8 @@
 #include <imgui.h>
 
 std::unique_ptr<VideoCommon::ShaderCache> g_shader_cache;
+
+std::atomic<u32> g_stv_pipes{0}, g_stv_pipes_us{0};
 
 namespace VideoCommon
 {
@@ -127,10 +132,17 @@ const AbstractPipeline* ShaderCache::GetPipelineForUid(const GXPipelineUid& uid)
     return it->second.first.get();
 
   const bool exists_in_cache = it != m_gx_pipeline_cache.end();
+  const auto stv_t0 = std::chrono::steady_clock::now();
   std::unique_ptr<AbstractPipeline> pipeline;
   std::optional<AbstractPipelineConfig> pipeline_config = GetGXPipelineConfig(uid);
   if (pipeline_config)
     pipeline = g_gfx->CreatePipeline(*pipeline_config);
+  // STV_GC_METRICAS: compilaciones sincronicas en el hilo de video (cada una es un tiron posible).
+  g_stv_pipes.fetch_add(1, std::memory_order_relaxed);
+  g_stv_pipes_us.fetch_add(static_cast<u32>(std::chrono::duration_cast<std::chrono::microseconds>(
+                               std::chrono::steady_clock::now() - stv_t0)
+                               .count()),
+                           std::memory_order_relaxed);
   if (g_ActiveConfig.bShaderCache && !exists_in_cache)
     AppendGXPipelineUID(uid);
   return InsertGXPipeline(uid, std::move(pipeline));
