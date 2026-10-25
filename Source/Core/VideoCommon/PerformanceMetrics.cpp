@@ -48,6 +48,7 @@ void PerformanceMetrics::Reset()
 // por segundo esconde). CountFrame corre en el hilo de video; la linea la escribe el hilo de CPU.
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
+extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
 static TimePoint s_stv_ultimo_cuadro{};
 
 void PerformanceMetrics::CountFrame()
@@ -116,9 +117,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
       __android_log_print(ANDROID_LOG_INFO, "STVGC",
-                          "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f",
+                          "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f "
+                          "tex=%u/%uMB pool=%u/%uMB",
                           GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), s_stv_max_us.exchange(0) / 1000.0,
-                          s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0);
+                          s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0,
+                          g_stv_tex_n.load(), g_stv_tex_kb.load() / 1024, g_stv_pool_n.load(),
+                          g_stv_pool_kb.load() / 1024);
     }
   }
 #endif
