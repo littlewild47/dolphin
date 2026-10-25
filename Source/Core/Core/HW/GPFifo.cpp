@@ -16,6 +16,11 @@
 #include "Core/System.h"
 #include "VideoCommon/CommandProcessor.h"
 
+namespace CommandProcessor
+{
+extern bool g_stv_fifo_lote;  // STV_GC_FIFO2_x
+}
+
 namespace GPFifo
 {
 GPFifoManager::GPFifoManager(Core::System& system) : m_system(system)
@@ -82,6 +87,9 @@ void GPFifoManager::ResetGatherPipe()
   SetGatherPipeCount(0);
 }
 
+// STV_GC_FIFO2_x (EXPLORACION): contadores para la linea STVGC (vaciados y rafagas por segundo).
+u64 g_stv_vaciados = 0, g_stv_rafagas = 0;
+
 void GPFifoManager::UpdateGatherPipe()
 {
   auto& system = m_system;
@@ -103,17 +111,26 @@ void GPFifoManager::UpdateGatherPipe()
     else
       processor_interface.m_fifo_cpu_write_pointer += GATHER_PIPE_SIZE;
 
-    system.GetCommandProcessor().GatherPipeBursted();
+    // STV_GC_FIFO2_x: con el lote, el aviso al procesador de comandos va una vez despues del lazo.
+    if (!CommandProcessor::g_stv_fifo_lote)
+      system.GetCommandProcessor().GatherPipeBursted();
   }
+  if (CommandProcessor::g_stv_fifo_lote && processed != 0)
+    system.GetCommandProcessor().STVGatherPipeBurstedN(static_cast<u32>(processed / GATHER_PIPE_SIZE));
+  g_stv_rafagas += processed / GATHER_PIPE_SIZE;
+  g_stv_vaciados++;
 
   // move back the spill bytes
   memmove(m_gather_pipe, m_gather_pipe + processed, pipe_count);
   SetGatherPipeCount(pipe_count);
 }
 
+// STV_GC_FIFO2_x: umbral de vaciado tambien en los caminos de C++ (escrituras lentas al FIFO); lo fija la valvula.
+u32 g_stv_gp_umbral_c = GATHER_PIPE_SIZE;
+
 void GPFifoManager::FastCheckGatherPipe()
 {
-  if (GetGatherPipeCount() >= GATHER_PIPE_SIZE)
+  if (GetGatherPipeCount() >= g_stv_gp_umbral_c)
   {
     UpdateGatherPipe();
   }
@@ -121,7 +138,7 @@ void GPFifoManager::FastCheckGatherPipe()
 
 void GPFifoManager::CheckGatherPipe()
 {
-  if (GetGatherPipeCount() >= GATHER_PIPE_SIZE)
+  if (GetGatherPipeCount() >= g_stv_gp_umbral_c)
   {
     UpdateGatherPipe();
 

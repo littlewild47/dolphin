@@ -54,6 +54,8 @@ const Info<bool> MAIN_STV_DOWNCOUNT_REG{{System::Main, "Core", "STVDowncountReg"
 const Info<int> MAIN_STV_GPR_FIJOS{{System::Main, "Core", "STVGprFijos"}, 1};
 // STV_GC_BLRFIX_v1: ver Jit.cpp (WriteExit con destino en registro).
 const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
+// STV_GC_FIFO2_x: bytes de escrituras al FIFO entre dos vaciados que el JIT ARM64 compila (Dolphin: 32).
+const Info<int> MAIN_STV_GP_UMBRAL{{System::Main, "Core", "STVGatherUmbral"}, 32};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};

@@ -68,6 +68,9 @@ extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 extern const Info<int> MAIN_STV_GPR_FIJOS;
 // STV_GC_BLRFIX_v1: una llamada indirecta (bcctrl) empuja la direccion de retorno correcta aunque su temporal sea W26.
 extern const Info<bool> MAIN_STV_BLR_FIX;
+// STV_GC_FIFO2_x: cada cuantos bytes escritos al gather pipe el JIT ARM64 compila una llamada a FastCheckGatherPipe
+// (32, 64, 128 o 256; el bufer mide 512).
+extern const Info<int> MAIN_STV_GP_UMBRAL;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;

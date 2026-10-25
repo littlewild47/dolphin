@@ -172,6 +172,7 @@ public:
   void SetCPStatusFromGPU();
   void SetCPStatusFromCPU();
   void GatherPipeBursted();
+  void STVGatherPipeBurstedN(u32 n);  // STV_GC_FIFO2_x
   void UpdateInterrupts(u64 userdata);
   void UpdateInterruptsFromVideoBackend(u64 userdata);
 
