@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 
 #include "Common/Assert.h"
 #include "Common/Contains.h"
@@ -16,6 +17,11 @@
 #include "VideoBackends/Vulkan/VKTexture.h"
 #include "VideoBackends/Vulkan/VulkanContext.h"
 #include "VideoCommon/Present.h"
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
 #include <X11/Xlib.h>
@@ -243,6 +249,32 @@ bool SwapChain::SelectPresentMode()
                                                   &mode_count, present_modes.data());
   ASSERT(res == VK_SUCCESS);
 
+#ifdef __ANDROID__
+  // STV_GC_VUELO (exploracion): modos que ofrece la superficie, y debug.stv.gc.modo = fifo|mailbox|immediate fuerza uno.
+  {
+    std::string lista;
+    for (VkPresentModeKHR m : present_modes)
+      lista += std::to_string(static_cast<int>(m)) + " ";
+    __android_log_print(ANDROID_LOG_INFO, "STVGC", "modos de presentacion: %s(vsync=%d)", lista.c_str(),
+                        m_vsync_enabled ? 1 : 0);
+    char v[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.modo", v) > 0)
+    {
+      const std::string q = v;
+      const VkPresentModeKHR f = q == "fifo"      ? VK_PRESENT_MODE_FIFO_KHR :
+                                 q == "mailbox"   ? VK_PRESENT_MODE_MAILBOX_KHR :
+                                 q == "immediate" ? VK_PRESENT_MODE_IMMEDIATE_KHR :
+                                                    VK_PRESENT_MODE_MAX_ENUM_KHR;
+      if (Common::Contains(present_modes, f))
+      {
+        m_present_mode = f;
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "modo forzado: %d", static_cast<int>(f));
+        return true;
+      }
+    }
+  }
+#endif
+
   // If vsync is enabled, use VK_PRESENT_MODE_FIFO_KHR.
   // This check should not fail with conforming drivers, as the FIFO present mode is mandated by
   // the specification (VK_KHR_swapchain). In case it isn't though, fall through to any other mode.
@@ -293,6 +325,22 @@ bool SwapChain::CreateSwapChain()
   // maxImageCount can be zero, in which case there isn't an upper limit on the number of buffers.
   if (surface_capabilities.maxImageCount > 0)
     image_count = std::min(image_count, surface_capabilities.maxImageCount);
+
+#ifdef __ANDROID__
+  // STV_GC_VUELO (exploracion): debug.stv.gc.imagenes = imagenes extra sobre el minimo (1 = Dolphin).
+  {
+    char v[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.imagenes", v) > 0 && v[0] >= '0' && v[0] <= '4')
+    {
+      image_count = surface_capabilities.minImageCount + static_cast<u32>(v[0] - '0');
+      if (surface_capabilities.maxImageCount > 0)
+        image_count = std::min(image_count, surface_capabilities.maxImageCount);
+    }
+    __android_log_print(ANDROID_LOG_INFO, "STVGC", "cadena: modo %d, imagenes %u (min %u, max %u)",
+                        static_cast<int>(m_present_mode), image_count, surface_capabilities.minImageCount,
+                        surface_capabilities.maxImageCount);
+  }
+#endif
 
   // Determine the dimensions of the swap chain. Values of -1 indicate the size we specify here
   // determines window size?

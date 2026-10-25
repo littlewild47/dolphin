@@ -15,7 +15,8 @@ namespace Vulkan
 constexpr size_t NUM_COMMAND_BUFFERS = 8;
 
 // Number of frames in flight, will be used to decide how many descriptor pools are used
-constexpr size_t NUM_FRAMES_IN_FLIGHT = 2;
+// STV_GC_VUELO: hasta 3 cuadros en vuelo (arreglos); cuantos se usan lo decide CommandBufferManager.
+constexpr size_t NUM_FRAMES_IN_FLIGHT = 3;
 
 // Staging buffer usage - optimize for uploads or readbacks
 enum STAGING_BUFFER_TYPE

@@ -13,6 +13,11 @@
 #include "VideoCommon/Constants.h"
 #include "vulkan/vulkan_core.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
+
 namespace Vulkan
 {
 CommandBufferManager::CommandBufferManager(bool use_threaded_submission)
@@ -345,7 +350,23 @@ void CommandBufferManager::SubmitCommandBuffer(bool submit_on_worker_thread,
 
   if (advance_to_next_frame)
   {
-    m_current_frame = (m_current_frame + 1) % NUM_FRAMES_IN_FLIGHT;
+    // STV_GC_VUELO: cuadros en vuelo (2 = Dolphin). Exploracion: debug.stv.gc.vuelo (2..3), releido cada
+    // 30 cuadros. Cambiarlo en caliente es seguro: antes de reusar los recursos de un cuadro se espera a TODOS los
+    // buferes de comandos con ese indice (el lazo de abajo), sea cual sea el modulo.
+    static u32 stv_vuelo = 2, stv_cuenta = 0;
+#ifdef __ANDROID__
+    if ((stv_cuenta++ % 30) == 0)
+    {
+      char v[PROP_VALUE_MAX] = {};
+      u32 n = 2;
+      if (__system_property_get("debug.stv.gc.vuelo", v) > 0 && v[0] >= '2' && v[0] <= '3')
+        n = static_cast<u32>(v[0] - '0');
+      if (n != stv_vuelo)
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "vuelo %u -> %u", stv_vuelo, n);
+      stv_vuelo = n;
+    }
+#endif
+    m_current_frame = (m_current_frame + 1) % stv_vuelo;
 
     // Wait for all command buffers that used the descriptor pool to finish
     u32 cmd_buffer_index = (m_current_cmd_buffer + 1) % NUM_COMMAND_BUFFERS;
