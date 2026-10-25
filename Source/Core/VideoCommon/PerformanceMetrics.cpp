@@ -12,10 +12,12 @@
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
+#include "Core/Config/MainSettings.h"
 
 #ifdef __ANDROID__
-// STV_GC_METRICAS_v1: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
-// cuadros, los VI y la velocidad de la emulacion. Instrumento del banco de GameCube de STV: no depende de que el
+// STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
+// cuadros, los VI y la velocidad de la emulacion; el cuadro mas largo, los de mas de 50 ms, las compilaciones de
+// pipelines, la cache de texturas y si el JIT sigue ramas (JITFollowBranch, ajustable por juego). Instrumento del banco de GameCube de STV: no depende de que el
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
@@ -118,11 +120,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     {
       __android_log_print(ANDROID_LOG_INFO, "STVGC",
                           "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f "
-                          "tex=%u/%uMB pool=%u/%uMB",
+                          "tex=%u/%uMB pool=%u/%uMB rama=%d",
                           GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), s_stv_max_us.exchange(0) / 1000.0,
                           s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0,
                           g_stv_tex_n.load(), g_stv_tex_kb.load() / 1024, g_stv_pool_n.load(),
-                          g_stv_pool_kb.load() / 1024);
+                          g_stv_pool_kb.load() / 1024,
+                          Config::Get(Config::MAIN_JIT_FOLLOW_BRANCH) ? 1 : 0);
     }
   }
 #endif
