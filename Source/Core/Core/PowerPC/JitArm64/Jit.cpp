@@ -706,6 +706,14 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
 void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_after_return,
                          ARM64Reg exit_address_after_return_reg)
 {
+  // STV_GC_BLRFIX_v1: el MOV de abajo pisa DISPATCHER_PC (W26). Desde que STV_GC_JITDC_v1 saco W27 del pool, el
+  // temporal con la direccion de retorno de bcctrl (WB, el primero del pool) es W26: se empujaba el DESTINO como
+  // clave y TODO retorno de una llamada indirecta fallaba, vaciando la pila de la optimizacion BLR (Wind Waker:
+  // 4,1 M de 8,4 M retornos/s; con el arreglo, 57 mil). En la 2609 oficial WB es W27 y no pasa. La direccion de
+  // retorno se conoce al compilar: se empuja como constante.
+  if (m_stv_blr_fix && exit_address_after_return_reg == DISPATCHER_PC && dest != DISPATCHER_PC)
+    exit_address_after_return_reg = ARM64Reg::INVALID_REG;
+
   if (dest != DISPATCHER_PC)
     MOV(DISPATCHER_PC, dest);
 

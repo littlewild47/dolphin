@@ -66,6 +66,8 @@ extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 // STV_GC_JITGF_v1: r3,r0,r31,r4,r1,r30 del PowerPC fijos en W19-W24 del JIT ARM64 entre bloques.
 // 0 = apagada, 1 = prendida, 2 = prendida + escritura en ppcState.gpr y verificacion al entrar a cada bloque.
 extern const Info<int> MAIN_STV_GPR_FIJOS;
+// STV_GC_BLRFIX_v1: una llamada indirecta (bcctrl) empuja la direccion de retorno correcta aunque su temporal sea W26.
+extern const Info<bool> MAIN_STV_BLR_FIX;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;
