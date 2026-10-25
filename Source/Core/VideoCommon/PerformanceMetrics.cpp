@@ -3,6 +3,12 @@
 
 #include "VideoCommon/PerformanceMetrics.h"
 
+#include <map>
+#include <tuple>
+#include <vector>
+#include <algorithm>
+#include "Core/PowerPC/JitArm64/Jit.h"
+
 #include <algorithm>
 
 #include <imgui.h>
@@ -166,6 +172,53 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           Config::SetCurrent(Config::MAIN_STV_GPR_FIJOS, n);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: gf=%d", n);
         }
+      }
+    }
+    // STV_GC_BLRPOP_x: debug.stv.gc.blrpop = 0|1 (tabla de ajustes del JIT: vacia la cache).
+    {
+      char bp[PROP_VALUE_MAX] = {};
+      static int stv_bp_prev = -1;
+      if (__system_property_get("debug.stv.gc.blrpop", bp) > 0 && (bp[0] == '0' || bp[0] == '1'))
+      {
+        const int n = bp[0] - '0';
+        if (n != stv_bp_prev)
+        {
+          stv_bp_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_BLR_POP, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: blrpop=%d", n);
+        }
+      }
+    }
+    // STV_GC_BLRDIAG_x (EXPLORACION): una linea por segundo con las tasas, y con debug.stv.gc.blrdump=<n> nuevo el
+    // resumen de los ultimos 1024 retornos "reales" agrupados por {LR, desapilado}.
+    {
+      static u64 v0 = 0, r0 = 0, t0 = 0, p0 = 0, c0 = 0;
+      const u64 v1 = g_stv_blrdiag.vacia, r1 = g_stv_blrdiag.real, t1 = g_stv_blrdiag.retornos,
+                p1 = g_stv_blrdiag.empujes, c1 = g_stv_compila;
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "blr: retornos=%llu/s fallan=%llu/s empujes=%llu/s compila=%llu/s",
+                          static_cast<unsigned long long>(t1 - t0), static_cast<unsigned long long>(r1 - r0 + v1 - v0),
+                          static_cast<unsigned long long>(p1 - p0), static_cast<unsigned long long>(c1 - c0));
+      v0 = v1;
+      r0 = r1;
+      t0 = t1;
+      p0 = p1;
+      c0 = c1;
+      char bd[PROP_VALUE_MAX] = {};
+      static std::string bd_prev;
+      if (__system_property_get("debug.stv.gc.blrdump", bd) > 0 && bd_prev != bd)
+      {
+        bd_prev = bd;
+        std::map<std::tuple<u32, u32, u32, u32>, int> g;
+        for (const auto& e : g_stv_blrdiag.e)
+          g[{e.lr, e.desapilado, e.siguiente, e.siguiente2}]++;
+        std::vector<std::pair<int, std::tuple<u32, u32, u32, u32>>> v;
+        for (const auto& [k, n] : g)
+          v.push_back({n, k});
+        std::sort(v.rbegin(), v.rend());
+        for (size_t i = 0; i < v.size() && i < 25; i++)
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "blrdump %d lr=%08x desapilado=%08x sig=%08x sig2=%08x",
+                              v[i].first, std::get<0>(v[i].second), std::get<1>(v[i].second),
+                              std::get<2>(v[i].second), std::get<3>(v[i].second));
       }
     }
     char v[PROP_VALUE_MAX] = {};

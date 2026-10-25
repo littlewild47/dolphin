@@ -66,6 +66,9 @@ extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 // STV_GC_JITGF_v1: r3,r0,r31,r4,r1,r30 del PowerPC fijos en W19-W24 del JIT ARM64 entre bloques.
 // 0 = apagada, 1 = prendida, 2 = prendida + escritura en ppcState.gpr y verificacion al entrar a cada bloque.
 extern const Info<int> MAIN_STV_GPR_FIJOS;
+// STV_GC_BLRPOP_x: un retorno (blr) que no coincide con la pila de la optimizacion BLR descarta SOLO el marco que
+// desapilo (ya lo hizo el LDP) y va al despachador, sin ResetStack: los marcos de abajo siguen sirviendo.
+extern const Info<bool> MAIN_STV_BLR_POP;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;

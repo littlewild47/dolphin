@@ -460,6 +460,20 @@ void JitArm64::STVGfVerificar()
   SetJumpTarget(iguales);
 }
 
+// STV_GC_BLRDIAG_x (EXPLORACION): diagnostico de los retornos que no coinciden con la pila (ver WriteBLRExit).
+STVBlrDiag g_stv_blrdiag{};
+
+// STV_GC_BLRDIAG_x: suma 1 al contador de g_stv_blrdiag en `off` sin pisar ningun registro (X0/X1 al vuelo en la pila).
+void JitArm64::STVBlrContar(u32 off)
+{
+  STP(IndexType::Pre, ARM64Reg::X0, ARM64Reg::X1, ARM64Reg::SP, -16);
+  MOVP2R(ARM64Reg::X0, &g_stv_blrdiag);
+  LDR(IndexType::Unsigned, ARM64Reg::X1, ARM64Reg::X0, off);
+  ADD(ARM64Reg::X1, ARM64Reg::X1, 1);
+  STR(IndexType::Unsigned, ARM64Reg::X1, ARM64Reg::X0, off);
+  LDP(IndexType::Post, ARM64Reg::X0, ARM64Reg::X1, ARM64Reg::SP, 16);
+}
+
 void JitArm64::ResetStack()
 {
   if (!m_enable_blr_optimization)
@@ -617,6 +631,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
   const u8* host_address_after_return = nullptr;
   if (LK)
   {
+    STVBlrContar(24);  // STV_GC_BLRDIAG_x
     // Push {ARM_PC (64-bit); PPC_PC (32-bit); feature_flags (32-bit)} on the stack
     ARM64Reg reg_to_push = ARM64Reg::X1;
     const u64 feature_flags = m_ppc_state.feature_flags;
@@ -706,6 +721,12 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
 void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_after_return,
                          ARM64Reg exit_address_after_return_reg)
 {
+  // STV_GC_BLRFIX_x: el MOV de abajo pisa DISPATCHER_PC (W26); si la direccion de retorno venia en W26 (el
+  // temporal que bcctrl recibe desde que STV_GC_JITDC saco W27 del pool), se empujaba el DESTINO como clave y
+  // todo retorno de una llamada indirecta fallaba (Wind Waker: 4 M/s). La direccion se conoce al compilar.
+  if (exit_address_after_return_reg == DISPATCHER_PC && dest != DISPATCHER_PC)
+    exit_address_after_return_reg = ARM64Reg::INVALID_REG;
+
   if (dest != DISPATCHER_PC)
     MOV(DISPATCHER_PC, dest);
 
@@ -725,6 +746,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
   }
   else
   {
+    STVBlrContar(24);  // STV_GC_BLRDIAG_x
     // Push {ARM_PC (64-bit); PPC_PC (32-bit); feature_flags (32-bit)} on the stack
     ARM64Reg reg_to_push = ARM64Reg::X1;
     const u64 feature_flags = m_ppc_state.feature_flags;
@@ -797,6 +819,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
     gpr.Lock(ARM64Reg::W30);
   }
 
+  STVBlrContar(24);  // STV_GC_BLRDIAG_x
   const u8* host_address_after_return;
   {
     // Push {ARM_PC (64-bit); PPC_PC (32-bit); feature_flags (32-bit)} on the stack
@@ -885,6 +908,7 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
                      js.downcountAmount);
   }
 
+  STVBlrContar(16);  // STV_GC_BLRDIAG_x
   // Check if {PPC_PC, feature_flags} matches the current state, then RET to ARM_PC.
   LDP(IndexType::Post, ARM64Reg::X2, ARM64Reg::X1, ARM64Reg::SP, 16);
   const u64 feature_flags = m_ppc_state.feature_flags;
@@ -905,7 +929,45 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
 
   SetJumpTarget(no_match);
 
-  ResetStack();
+  // STV_GC_BLRDIAG_x (EXPLORACION): X1 = clave desapilada, X2 = destino nativo desapilado, W26 = LR.
+  {
+    MOVP2R(ARM64Reg::X0, &g_stv_blrdiag);
+    CMN(ARM64Reg::X1, 1);
+    FixupBranch real = B(CC_NEQ);
+    LDR(IndexType::Unsigned, ARM64Reg::X2, ARM64Reg::X0, 0);
+    ADD(ARM64Reg::X2, ARM64Reg::X2, 1);
+    STR(IndexType::Unsigned, ARM64Reg::X2, ARM64Reg::X0, 0);
+    FixupBranch fin = B();
+    SetJumpTarget(real);
+    LDR(IndexType::Unsigned, ARM64Reg::X2, ARM64Reg::X0, 8);
+    ADD(ARM64Reg::X2, ARM64Reg::X2, 1);
+    STR(IndexType::Unsigned, ARM64Reg::X2, ARM64Reg::X0, 8);
+    AND(ARM64Reg::X2, ARM64Reg::X2, LogicalImm(STVBlrDiag::N - 1, GPRSize::B64));
+    ADD(ARM64Reg::X0, ARM64Reg::X0, 32);
+    ADD(ARM64Reg::X0, ARM64Reg::X0, ARM64Reg::X2, ArithOption(ARM64Reg::X2, ShiftType::LSL, 4));
+    STP(IndexType::Signed, DISPATCHER_PC, ARM64Reg::W1, ARM64Reg::X0, 0);
+    LDR(IndexType::Unsigned, ARM64Reg::X1, ARM64Reg::SP, 8);
+    LDR(IndexType::Unsigned, ARM64Reg::X2, ARM64Reg::SP, 24);
+    STP(IndexType::Signed, ARM64Reg::W1, ARM64Reg::W2, ARM64Reg::X0, 8);
+    SetJumpTarget(fin);
+  }
+
+  // STV_GC_BLRPOP_x: con la valvula, el LDP de arriba ya descarto el marco que no coincidio; los de abajo quedan.
+  // Pero si ese LDP subio el SP por encima del fondo (stored_stack_pointer: la pila ya estaba vacia), se vuelve al
+  // fondo como siempre: un STP de la proxima llamada pisaria los registros que guardo enter_code.
+  if (!m_stv_blr_pop)
+  {
+    ResetStack();
+  }
+  else
+  {
+    LDR(IndexType::Unsigned, ARM64Reg::X0, PPC_REG, PPCSTATE_OFF(stored_stack_pointer));
+    ADD(ARM64Reg::X1, ARM64Reg::SP, 0);
+    CMP(ARM64Reg::X1, ARM64Reg::X0);
+    FixupBranch dentro = B(CC_LS);
+    ADD(ARM64Reg::SP, ARM64Reg::X0, 0);
+    SetJumpTarget(dentro);
+  }
 
   DoDownCount();
 

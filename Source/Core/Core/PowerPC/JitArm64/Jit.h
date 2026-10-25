@@ -20,6 +20,24 @@
 
 class HostDisassembler;
 
+// STV_GC_BLRDIAG_x (EXPLORACION): retornos (blr) cuya direccion no coincide con la pila de la optimizacion BLR.
+// vacia = la pila ya estaba vacia (cascada despues de un ResetStack); real = habia otra direccion: el origen.
+// Por cada "real": {LR, pc desapilado, pc del marco siguiente, pc del siguiente al siguiente}.
+struct STVBlrDiag
+{
+  static constexpr u64 N = 1024;
+  u64 vacia;
+  u64 real;
+  u64 retornos;  // blr con la optimizacion (cada intento de RET)
+  u64 empujes;   // llamadas que empujan {destino nativo, pc} a la pila
+  struct Entrada
+  {
+    u32 lr, desapilado, siguiente, siguiente2;
+  } e[N];
+};
+extern STVBlrDiag g_stv_blrdiag;
+extern u64 g_stv_compila;
+
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {
 public:
@@ -67,6 +85,7 @@ public:
   // sincronizan a mano con STVDcGuardar/STVDcCargar(true), que emiten NOP con la valvula apagada para que la
   // disposicion sea identica en los dos modos (ver JitAsm.cpp).
   bool STVDcReg() const { return m_stv_dc_reg; }
+  void STVBlrContar(u32 off);  // STV_GC_BLRDIAG_x
   void STVDcGuardar(bool nop_si_apagada = false);
   void STVDcCargar(bool nop_si_apagada = false);
 
