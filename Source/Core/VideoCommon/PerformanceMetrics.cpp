@@ -13,6 +13,12 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/Core.h"
+#include "Core/PowerPC/JitInterface.h"
+#include "Core/System.h"
+#include <cstdio>
+#include <fmt/format.h>
+#include <unistd.h>
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -120,6 +126,35 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    // STV_GC_JITDUMP_x (EXPLORACION): con [Debug] JitEnableProfiling = True, debug.stv.gc.jitdump = "w<n>" pone en
+    // cero los contadores por bloque y "d<n>" escribe la tabla de Dolphin (WriteProfileResults: direccion, tamano en
+    // el juego y nativo, ejecuciones, ciclos y tiempo) en files/perf/jitdump-<pid>.tsv. Corre en el hilo de CPU.
+    {
+      char jd[PROP_VALUE_MAX] = {};
+      static std::string stv_jd_prev;
+      if (__system_property_get("debug.stv.gc.jitdump", jd) > 0 && stv_jd_prev != jd)
+      {
+        stv_jd_prev = jd;
+        auto& system = Core::System::GetInstance();
+        const Core::CPUThreadGuard guard(system);
+        if (jd[0] == 'w')
+        {
+          system.GetJitInterface().WipeBlockProfilingData(guard);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jitdump: contadores en cero");
+        }
+        else if (jd[0] == 'd')
+        {
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/jitdump-{}.tsv", getpid());
+          if (std::FILE* f = std::fopen(ruta.c_str(), "w"))
+          {
+            system.GetJitInterface().WriteProfileResults(guard, f);
+            std::fclose(f);
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "jitdump: %s", ruta.c_str());
+          }
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
