@@ -44,9 +44,26 @@ void PerformanceMetrics::Reset()
   m_frame_presentation_offset = DT{};
 }
 
+// STV_GC_METRICAS: cuadro mas largo y cuadros de mas de 50 ms desde la ultima linea (los tirones que el promedio
+// por segundo esconde). CountFrame corre en el hilo de video; la linea la escribe el hilo de CPU.
+static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
+extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
+static TimePoint s_stv_ultimo_cuadro{};
+
 void PerformanceMetrics::CountFrame()
 {
   m_fps_counter.Count();
+  const TimePoint ahora = Clock::now();
+  if (s_stv_ultimo_cuadro != TimePoint{})
+  {
+    const u32 us = static_cast<u32>(
+        std::chrono::duration_cast<std::chrono::microseconds>(ahora - s_stv_ultimo_cuadro).count());
+    if (us > s_stv_max_us.load(std::memory_order_relaxed))
+      s_stv_max_us.store(us, std::memory_order_relaxed);
+    if (us > 50000)
+      s_stv_n50.fetch_add(1, std::memory_order_relaxed);
+  }
+  s_stv_ultimo_cuadro = ahora;
 }
 
 void PerformanceMetrics::CountVBlank()
@@ -98,8 +115,10 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
-      __android_log_print(ANDROID_LOG_INFO, "STVGC", "fps=%.2f vps=%.2f speed=%.3f max=%.3f", GetFPS(),
-                          GetVPS(), GetSpeed(), GetMaxSpeed());
+      __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                          "fps=%.2f vps=%.2f speed=%.3f max=%.3f fmax=%.1f f50=%u pipes=%u pipems=%.1f",
+                          GetFPS(), GetVPS(), GetSpeed(), GetMaxSpeed(), s_stv_max_us.exchange(0) / 1000.0,
+                          s_stv_n50.exchange(0), g_stv_pipes.exchange(0), g_stv_pipes_us.exchange(0) / 1000.0);
     }
   }
 #endif
