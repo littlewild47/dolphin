@@ -350,7 +350,7 @@ void CommandBufferManager::SubmitCommandBuffer(bool submit_on_worker_thread,
 
   if (advance_to_next_frame)
   {
-    // STV_GC_VUELO: cuadros en vuelo (2 = Dolphin). Exploracion: debug.stv.gc.vuelo (2..3), releido cada
+    // STV_GC_VUELO: cuadros en vuelo (2 = Dolphin). Exploracion: debug.stv.gc.vuelo (2..4), releido cada
     // 30 cuadros. Cambiarlo en caliente es seguro: antes de reusar los recursos de un cuadro se espera a TODOS los
     // buferes de comandos con ese indice (el lazo de abajo), sea cual sea el modulo.
     static u32 stv_vuelo = 2, stv_cuenta = 0;
@@ -359,7 +359,7 @@ void CommandBufferManager::SubmitCommandBuffer(bool submit_on_worker_thread,
     {
       char v[PROP_VALUE_MAX] = {};
       u32 n = 2;
-      if (__system_property_get("debug.stv.gc.vuelo", v) > 0 && v[0] >= '2' && v[0] <= '3')
+      if (__system_property_get("debug.stv.gc.vuelo", v) > 0 && v[0] >= '2' && v[0] <= '4')
         n = static_cast<u32>(v[0] - '0');
       if (n != stv_vuelo)
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "vuelo %u -> %u", stv_vuelo, n);
