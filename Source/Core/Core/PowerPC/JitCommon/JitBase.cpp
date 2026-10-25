@@ -84,7 +84,7 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JitB
     {&JitBase::m_fastmem_enabled, &Config::MAIN_FASTMEM},
     {&JitBase::m_page_table_fastmem_enabled, &Config::MAIN_PAGE_TABLE_FASTMEM},
     {&JitBase::m_accurate_cpu_cache_enabled, &Config::MAIN_ACCURATE_CPU_CACHE},
-    // STV_GC_JITDC_x: el downcount en W27 (solo lo usa JitArm64).
+    // STV_GC_JITDC_v1: el downcount en W27 (solo lo usa JitArm64).
     {&JitBase::m_stv_dc_reg, &Config::MAIN_STV_DOWNCOUNT_REG},
 }};
 

@@ -134,7 +134,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo rapido=%d", r ? 1 : 0);
       }
     }
-    // STV_GC_JITDC_x (EXPLORACION): debug.stv.gc.dc = 0|1 apaga/prende el downcount en W27 del JIT ARM64. Esta en
+    // STV_GC_JITDC_v1: debug.stv.gc.dc = 0|1 apaga/prende el downcount en W27 del JIT ARM64. Esta en
     // la tabla de ajustes del JIT: el proximo CheckForConfigChanges (dentro de GlobalAdvance) vacia la cache y
     // regenera las rutinas en el mismo ClearCache que aplica el valor nuevo.
     {

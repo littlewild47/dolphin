@@ -362,7 +362,7 @@ void JitArm64::Cleanup()
 
 void JitArm64::DoDownCount()
 {
-  // STV_GC_JITDC_x: con la valvula, un solo SUBS sobre W27 (las banderas siguen alimentando el B.GT del enlace
+  // STV_GC_JITDC_v1: con la valvula, un solo SUBS sobre W27 (las banderas siguen alimentando el B.GT del enlace
   // y el B.LE del despachador). W1 es el temporal si el inmediato no entra en 12 bits.
   if (STVDcReg())
   {
@@ -374,7 +374,7 @@ void JitArm64::DoDownCount()
   STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
 }
 
-// STV_GC_JITDC_x: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
+// STV_GC_JITDC_v1: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
 // (rutinas del despachador: misma disposicion en los dos modos).
 void JitArm64::STVDcGuardar(bool nop_si_apagada)
 {
@@ -384,7 +384,7 @@ void JitArm64::STVDcGuardar(bool nop_si_apagada)
     NOP();
 }
 
-// STV_GC_JITDC_x: ppcState.downcount -> W27 (idem).
+// STV_GC_JITDC_v1: ppcState.downcount -> W27 (idem).
 void JitArm64::STVDcCargar(bool nop_si_apagada)
 {
   if (STVDcReg())

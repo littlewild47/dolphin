@@ -407,7 +407,7 @@ void JitArm64::mfspr(UGeckoInstruction inst)
     auto& core_timing_globals = m_system.GetCoreTiming().GetGlobals();
     MOVP2R(Xg, &core_timing_globals);
 
-    // STV_GC_JITDC_x: con la valvula el downcount vivo esta en W27 (la memoria esta rancia dentro del bloque).
+    // STV_GC_JITDC_v1: con la valvula el downcount vivo esta en W27 (la memoria esta rancia dentro del bloque).
     if (STVDcReg())
     {
       m_float_emit.SCVTF(SC, DOWNCOUNT_REG);

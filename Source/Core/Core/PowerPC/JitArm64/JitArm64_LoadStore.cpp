@@ -735,7 +735,7 @@ void JitArm64::dcbx(UGeckoInstruction inst)
 
     const auto reg_cycle_count = gpr.GetScopedReg();
     const auto reg_downcount = gpr.GetScopedReg();
-    // STV_GC_JITDC_x: con la valvula el downcount vivo esta en W27: se lee y se descuenta ahi, sin LDR/STR.
+    // STV_GC_JITDC_v1: con la valvula el downcount vivo esta en W27: se lee y se descuenta ahi, sin LDR/STR.
     const bool stv_dc = STVDcReg();
     const ARM64Reg dc = stv_dc ? DOWNCOUNT_REG : ARM64Reg(reg_downcount);
 

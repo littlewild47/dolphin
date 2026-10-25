@@ -13,7 +13,7 @@ namespace Core
 class System;
 }
 
-// STV_GC_JITDC_x: los generadores MMIO emiten con el JitArm64 (envoltorio de llamadas a C++).
+// STV_GC_JITDC_v1: los generadores MMIO emiten con el JitArm64 (envoltorio de llamadas a C++).
 class JitArm64;
 
 void SwapPairs(Arm64Gen::ARM64XEmitter* emit, Arm64Gen::ARM64Reg dst_reg,

@@ -58,7 +58,7 @@ public:
 
   const char* GetName() const override { return "JITARM64"; }
 
-  // STV_GC_JITDC_x (EXPLORACION): con la valvula STVDowncountReg prendida, el contador de ciclos vive en
+  // STV_GC_JITDC_v1: con la valvula STVDowncountReg prendida, el contador de ciclos vive en
   // DOWNCOUNT_REG (W27) dentro del codigo JIT. Invariante: siempre que el control esta en C++,
   // ppcState.downcount == W27. Por eso toda llamada del codigo JIT a C++ pasa por estos envoltorios, que tapan
   // a los de ARM64XEmitter: STR W27 antes, LDR W27 despues (el C++ puede leer o reescribir el downcount:

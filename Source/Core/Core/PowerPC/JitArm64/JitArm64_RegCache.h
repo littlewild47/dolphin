@@ -24,7 +24,7 @@ constexpr Arm64Gen::ARM64Reg MEM_REG = Arm64Gen::ARM64Reg::X28;
 constexpr Arm64Gen::ARM64Reg PPC_REG = Arm64Gen::ARM64Reg::X29;
 // PC register when calling the dispatcher
 constexpr Arm64Gen::ARM64Reg DISPATCHER_PC = Arm64Gen::ARM64Reg::W26;
-// STV_GC_JITDC_x: contador de ciclos (ppcState.downcount) cuando la valvula STVDowncountReg esta prendida.
+// STV_GC_JITDC_v1: contador de ciclos (ppcState.downcount) cuando la valvula STVDowncountReg esta prendida.
 // Callee-saved: el C++ lo preserva. Fuera del orden de asignacion SIEMPRE (prendida o apagada), asi el pool
 // es el mismo en los dos modos.
 constexpr Arm64Gen::ARM64Reg DOWNCOUNT_REG = Arm64Gen::ARM64Reg::W27;

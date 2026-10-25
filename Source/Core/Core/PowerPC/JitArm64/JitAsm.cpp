@@ -179,7 +179,7 @@ void JitArm64::GenerateAsm()
 
   // Call JIT
   ResetStack();
-  // STV_GC_JITDC_x: en este despachador las llamadas a C++ van por la version de ARM64XEmitter (sin el envoltorio
+  // STV_GC_JITDC_v1: en este despachador las llamadas a C++ van por la version de ARM64XEmitter (sin el envoltorio
   // de JitArm64) y se sincroniza W27 a mano con STR/LDR, o NOP con la valvula apagada. La disposicion tiene que
   // ser IDENTICA en los dos modos: un ClearCache dentro de Jit() o de GlobalAdvance regenera estas rutinas en la
   // MISMA direccion y la llamada vuelve (por X30) al codigo nuevo. Asi, al apagarla, el STR viejo ya dejo la
@@ -197,7 +197,7 @@ void JitArm64::GenerateAsm()
 
   SetJumpTarget(bail);
   do_timing = GetCodePtr();
-  // STV_GC_JITDC_x: fin de la tajada; desde aca el control va a C++ (GlobalAdvance o la salida).
+  // STV_GC_JITDC_v1: fin de la tajada; desde aca el control va a C++ (GlobalAdvance o la salida).
   STVDcGuardar(true);
   // Write the current PC out to PPCSTATE
   static_assert(PPCSTATE_OFF(pc) <= 252);
@@ -210,7 +210,7 @@ void JitArm64::GenerateAsm()
   static_assert(std::to_underlying(CPU::State::Running) == 0);
   FixupBranch exit = CBNZ(ARM64Reg::W8);
 
-  // STV_GC_JITDC_x: la entrada desde C++ (enter_code) salta aca: la memoria es la verdad y el LDR de abajo carga
+  // STV_GC_JITDC_v1: la entrada desde C++ (enter_code) salta aca: la memoria es la verdad y el LDR de abajo carga
   // W27 tanto al entrar como despues de cada GlobalAdvance (que reescribe el downcount de la tajada nueva).
   SetJumpTarget(to_start_of_timing_slice);
   ARM64XEmitter::ABI_CallFunction(&CoreTiming::GlobalAdvance);
@@ -237,7 +237,7 @@ void JitArm64::GenerateAsm()
 
   dispatcher_exit = GetCodePtr();
   SetJumpTarget(exit);
-  // STV_GC_JITDC_x: salida del JIT a C++. La salida desde do_timing ya guardo (repetirlo es inocuo); la de
+  // STV_GC_JITDC_v1: salida del JIT a C++. La salida desde do_timing ya guardo (repetirlo es inocuo); la de
   // debug_exit y el B(dispatcher_exit) de los puntos de parada de los bloques no.
   STVDcGuardar(true);
 
