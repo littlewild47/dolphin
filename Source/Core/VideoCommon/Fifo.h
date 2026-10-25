@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <pthread.h>
 #include <cstddef>
 #include <optional>
 
@@ -37,6 +38,10 @@ enum class SyncGPUReason
   Swap,
   AuxSpace,
 };
+
+// STV_GC_GRABADOR_v1: el hilo de video (el que corre RunGpuLoop), 0 si no hay. Lo lee el grabador de Vulkan para
+// diferir solo lo que graba ese hilo.
+extern std::atomic<pthread_t> g_stv_hilo_gpu;
 
 class FifoManager final
 {
