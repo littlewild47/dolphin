@@ -283,8 +283,11 @@ void FifoManager::ResetVideoBuffer()
 
 // Description: Main FIFO update loop
 // Purpose: Keep the Core HW updated about the CPU-GPU distance
+std::atomic<pthread_t> g_stv_hilo_gpu{0};
+
 void FifoManager::RunGpuLoop()
 {
+  g_stv_hilo_gpu.store(pthread_self());
   m_gpu_mainloop.Run(
       [this] {
         // Run events from the CPU thread.
@@ -386,6 +389,8 @@ void FifoManager::RunGpuLoop()
         }
       },
       100);
+  // Lo que el grabador tenga pendiente lo vacia el proximo hilo que llame a Vulkan (ver VKGrabador.h).
+  g_stv_hilo_gpu.store(0);
 }
 
 void FifoManager::FlushGpu()

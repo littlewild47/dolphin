@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "VideoBackends/Vulkan/VulkanContext.h"
+#include "VideoBackends/Vulkan/VKGrabador.h"
 
 #include <algorithm>
 #include <array>
@@ -820,6 +821,9 @@ bool VulkanContext::CreateDevice(VkSurfaceKHR surface, bool enable_validation_la
   // With the device created, we can fill the remaining entry points.
   if (!LoadVulkanDeviceFunctions(m_device))
     return false;
+
+  // STV_GC_GRABADOR_v1: engancha los punteros recien cargados (antes de crear VMA, que copia los mismos).
+  Grabador::Iniciar();
 
   // Grab the graphics and present queues.
   vkGetDeviceQueue(m_device, m_graphics_queue_family_index, 0, &m_graphics_queue);
