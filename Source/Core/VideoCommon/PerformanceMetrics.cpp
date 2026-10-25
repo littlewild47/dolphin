@@ -12,6 +12,7 @@
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
+#include "Core/Config/MainSettings.h"
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v1: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -113,6 +114,23 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
   if (clock_time - stv_ultima >= std::chrono::seconds{1})
   {
     stv_ultima = clock_time;
+    // STV_GC_JITVALV_x (EXPLORACION): debug.stv.gc.jit = "f=0|1 r=0|1" pone AccurateFmadds y JITFollowBranch en la
+    // capa actual; Dolphin los toma en el proximo CheckForConfigChanges (hilo de CPU) y vacia la cache del JIT.
+    {
+      char j[PROP_VALUE_MAX] = {};
+      static std::string stv_jit_prev;
+      if (__system_property_get("debug.stv.gc.jit", j) > 0 && stv_jit_prev != j)
+      {
+        stv_jit_prev = j;
+        const std::string q = j;
+        const auto f = q.find("f="), r = q.find("r=");
+        if (f != std::string::npos)
+          Config::SetCurrent(Config::MAIN_ACCURATE_FMADDS, q[f + 2] == '1');
+        if (r != std::string::npos)
+          Config::SetCurrent(Config::MAIN_JIT_FOLLOW_BRANCH, q[r + 2] == '1');
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: %s", j);
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
