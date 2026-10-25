@@ -185,8 +185,13 @@ void JitArm64::GenerateAsm()
   // MISMA direccion y la llamada vuelve (por X30) al codigo nuevo. Asi, al apagarla, el STR viejo ya dejo la
   // verdad en memoria y el NOP nuevo no la pisa; al prenderla, la memoria era la verdad y el LDR nuevo la carga.
   STVDcGuardar(true);
+  // STV_GC_JITGF_x: el compilador lee ppcState.gpr (constantes especulativas, Trace) y un ISI no los toca, pero el
+  // regreso puede caer en rutinas regeneradas en OTRO modo (ClearCache por falta de espacio): guardar y recargar
+  // siempre, con NOP si la valvula esta apagada (misma disposicion en los tres modos, mismo argumento que W27).
+  STVGfGuardar(true);
   ARM64XEmitter::ABI_CallFunction(&JitTrampoline, this, DISPATCHER_PC);
   STVDcCargar(true);
+  STVGfCargar(true);
 
   LDR(IndexType::Unsigned, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
 
@@ -199,6 +204,10 @@ void JitArm64::GenerateAsm()
   do_timing = GetCodePtr();
   // STV_GC_JITDC_x: fin de la tajada; desde aca el control va a C++ (GlobalAdvance o la salida).
   STVDcGuardar(true);
+  // STV_GC_JITGF_x: idem para los GPR fijos: GlobalAdvance corre los eventos (VI -> PatchEngine::ApplyFramePatches
+  // lee gpr[1]; Gecko::RunCodeHandler lo escribe; IOS puede reiniciar el PPC) y la salida a C++ (pausa, estados
+  // guardados, depurador) lee y escribe gpr.
+  STVGfGuardar(true);
   // Write the current PC out to PPCSTATE
   static_assert(PPCSTATE_OFF(pc) <= 252);
   static_assert(PPCSTATE_OFF(pc) + 4 == PPCSTATE_OFF(npc));
@@ -215,6 +224,8 @@ void JitArm64::GenerateAsm()
   SetJumpTarget(to_start_of_timing_slice);
   ARM64XEmitter::ABI_CallFunction(&CoreTiming::GlobalAdvance);
   STVDcCargar(true);
+  // STV_GC_JITGF_x: entrada desde C++ (enter_code) y regreso de GlobalAdvance: la memoria es la verdad.
+  STVGfCargar(true);
 
   // When we've just entered the jit we need to update the membase
   // GlobalAdvance also checks exceptions after which we need to
@@ -240,6 +251,8 @@ void JitArm64::GenerateAsm()
   // STV_GC_JITDC_x: salida del JIT a C++. La salida desde do_timing ya guardo (repetirlo es inocuo); la de
   // debug_exit y el B(dispatcher_exit) de los puntos de parada de los bloques no.
   STVDcGuardar(true);
+  // STV_GC_JITGF_x: idem (debug_exit y el B(dispatcher_exit) de los puntos de parada no pasan por do_timing).
+  STVGfGuardar(true);
 
   // Reset the stack pointer, since the BLR optimization may have pushed things onto the stack
   // without popping them.

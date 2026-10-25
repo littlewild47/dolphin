@@ -24,6 +24,10 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #include <processthreadsapi.h>
@@ -117,6 +121,9 @@ JitBase::~JitBase()
 
 bool JitBase::DoesConfigNeedRefresh() const
 {
+  // STV_GC_JITGF_x: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
+  if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
+    return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
     return this->*pair.first != Config::Get(*pair.second);
   });
@@ -147,6 +154,25 @@ void JitBase::RefreshConfig()
   jo.memcheck = m_system.IsMMUMode() || m_system.IsPauseOnPanicMode() || any_watchpoints;
   jo.fp_exceptions = m_enable_float_exceptions;
   jo.div_by_zero_exceptions = m_enable_div_by_zero_exceptions;
+
+  // STV_GC_JITGF_x: modo efectivo de los GPR fijos. Con jo.memcheck (MMU, pausa en panico o puntos de vigilancia)
+  // se apaga: (1) las condiciones de los puntos de vigilancia leen ppcState.gpr desde el camino lento de memoria
+  // (FlushPPCStateBeforeSlowAccess), y (2) una carga que falla con DSI tiene que dejar rD intacto, y con rD fijo la
+  // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada
+  // sincronizan a mano (DoJit) y el perfilado de bloques (jitdump p) prende la depuracion.
+  m_stv_gf_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS);
+  {
+    const int pedido = (m_stv_gf_pedido >= 0 && m_stv_gf_pedido <= 2) ? m_stv_gf_pedido : 0;
+    const int efectivo = jo.memcheck ? 0 : pedido;
+#ifdef __ANDROID__
+    if (efectivo != m_stv_gf)
+    {
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: gf efectivo=%d (pedido=%d memcheck=%d)", efectivo,
+                          m_stv_gf_pedido, jo.memcheck ? 1 : 0);
+    }
+#endif
+    m_stv_gf = efectivo;
+  }
 
   if (wanted_page_table_mappings != WantsPageTableMappings())
   {
