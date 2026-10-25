@@ -20,6 +20,13 @@
 
 class HostDisassembler;
 
+// STV_GC_JITFAR_x: con true, el JIT manda a far code lo frio de cada bloque (salidas condicionales
+// hacia adelante, la llamada del gather pipe y el camino de blr sin coincidencia en la pila de
+// retorno). Se lee al COMPILAR cada bloque (DoJit), nunca desde el codigo emitido. Solo se escribe
+// desde el hilo de CPU (valvula debug.stv.gc.jit "x=", PerformanceMetrics.cpp), que vacia la cache
+// del JIT si cambia, para que todo se recompile con el valor nuevo.
+extern bool g_stv_jit_far;
+
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {
 public:
@@ -424,6 +431,10 @@ protected:
 
   Arm64Gen::ARM64CodeBlock m_far_code;
   bool m_in_far_code = false;
+
+  // STV_GC_JITFAR_x: copia de g_stv_jit_far tomada al empezar DoJit, para que todo el bloque se
+  // compile con el mismo valor.
+  bool m_stv_jit_far = false;
 
   // Backed up when we switch to far code.
   u8* m_near_code = nullptr;

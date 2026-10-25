@@ -48,6 +48,9 @@ constexpr size_t NEAR_CODE_SIZE = 1024 * 1024 * 64;
 constexpr size_t FAR_CODE_SIZE = 1024 * 1024 * 64;
 constexpr size_t TOTAL_CODE_SIZE = NEAR_CODE_SIZE * 2 + FAR_CODE_SIZE * 2;
 
+// STV_GC_JITFAR_x: interruptor global (ver Jit.h).
+bool g_stv_jit_far = true;
+
 JitArm64::JitArm64(Core::System& system)
     : JitBase(system), m_float_emit(this),
       m_disassembler(HostDisassembler::Factory(HostDisassembler::Platform::aarch64))
@@ -349,7 +352,23 @@ void JitArm64::Cleanup()
     SUB(ARM64Reg::X0, ARM64Reg::X0, ARM64Reg::X1);
     CMP(ARM64Reg::X0, GPFifo::GATHER_PIPE_SIZE);
     FixupBranch exit = B(CC_LT);
+    // STV_GC_JITFAR_x: en near quedan la comparacion y un B; la llamada (MOVP2R x2 + BLR) va a
+    // far code y vuelve al mismo punto. No toca el cache de registros: la salida que sigue ya
+    // vacio lo que tenia que vaciar, y la llamada pisa lo mismo que antes.
+    const bool stv_far = m_stv_jit_far && !IsInFarCode();
+    if (stv_far)
+    {
+      FixupBranch to_far = B();
+      SwitchToFarCode();
+      SetJumpTarget(to_far);
+    }
     ABI_CallFunction(&GPFifo::UpdateGatherPipe, &m_system.GetGPFifo());
+    if (stv_far)
+    {
+      FixupBranch back = B();
+      SwitchToNearCode();
+      SetJumpTarget(back);
+    }
     SetJumpTarget(exit);
   }
 
@@ -810,11 +829,25 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
 
   SetJumpTarget(no_match);
 
+  // STV_GC_JITFAR_x: la pila de retorno no coincide (raro: pila reiniciada al compilar, LR
+  // manipulado): ResetStack + DoDownCount + B dispatcher van a far code; en near queda un B.
+  // Solo usa X0/X1 y SP, nada del cache de registros (la salida ya vacio todo).
+  const bool stv_far = m_stv_jit_far && !IsInFarCode();
+  if (stv_far)
+  {
+    FixupBranch to_far = B();
+    SwitchToFarCode();
+    SetJumpTarget(to_far);
+  }
+
   ResetStack();
 
   DoDownCount();
 
   B(dispatcher);
+
+  if (stv_far)
+    SwitchToNearCode();
 }
 
 void JitArm64::WriteExceptionExit(u32 destination, bool only_external, bool always_exception)
@@ -1169,6 +1202,8 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.carryFlag = CarryFlag::InPPCState;
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
+  // STV_GC_JITFAR_x: el interruptor se lee una vez por bloque, al compilarlo.
+  m_stv_jit_far = g_stv_jit_far;
 
   b->normalEntry = GetWritableCodePtr();
 
@@ -1242,6 +1277,32 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         js.mustCheckFifo = false;
 
         gpr.Lock(ARM64Reg::W30);
+
+        // STV_GC_JITFAR_x: en near se hace la misma comparacion que FastCheckGatherPipe
+        // (gather_pipe_ptr - gather_pipe_base_ptr >= GATHER_PIPE_SIZE) y, si toca, un B a far
+        // code, donde van el guardado de registros, la llamada y la restauracion. Todo lo que
+        // cambia el estado del cache de registros (Lock de W30, el temporal) se hace en near,
+        // antes de bifurcar, asi los dos caminos siguen con el mismo estado. FastCheckGatherPipe
+        // vuelve a comparar: con menos de 32 bytes no hacia nada, asi que saltearla es lo mismo.
+        FixupBranch stv_gp_skip;
+        if (m_stv_jit_far)
+        {
+          static_assert(PPCSTATE_OFF(gather_pipe_ptr) <= 504);
+          static_assert(PPCSTATE_OFF(gather_pipe_ptr) + 8 == PPCSTATE_OFF(gather_pipe_base_ptr));
+          {
+            // WB muere al cerrar este alcance: se suelta antes de calcular que registros guardar.
+            auto WB = gpr.GetScopedReg();
+            LDP(IndexType::Signed, ARM64Reg::X30, EncodeRegTo64(WB), PPC_REG,
+                PPCSTATE_OFF(gather_pipe_ptr));
+            SUB(ARM64Reg::X30, ARM64Reg::X30, EncodeRegTo64(WB));
+            CMP(ARM64Reg::X30, GPFifo::GATHER_PIPE_SIZE);
+          }
+          stv_gp_skip = B(CC_LT);
+          FixupBranch to_far = B();
+          SwitchToFarCode();
+          SetJumpTarget(to_far);
+        }
+
         BitSet32 regs_in_use = gpr.GetCallerSavedUsed();
         BitSet32 fprs_in_use = fpr.GetCallerSavedUsed();
         regs_in_use[DecodeReg(ARM64Reg::W30)] = false;
@@ -1251,6 +1312,14 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         ABI_CallFunction(&GPFifo::FastCheckGatherPipe, &m_system.GetGPFifo());
         m_float_emit.ABI_PopRegisters(fprs_in_use, ARM64Reg::X30);
         ABI_PopRegisters(regs_in_use);
+
+        if (m_stv_jit_far)
+        {
+          FixupBranch back = B();
+          SwitchToNearCode();
+          SetJumpTarget(back);
+          SetJumpTarget(stv_gp_skip);
+        }
 
         gpr.Unlock(ARM64Reg::W30);
         gatherPipeIntCheck = true;

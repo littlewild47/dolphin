@@ -183,6 +183,16 @@ void JitArm64::bcx(UGeckoInstruction inst)
   auto WB = (inst.LK && !js.op->branchIsIdleLoop) ? gpr.GetScopedReg() :
                                                     Arm64GPRCache::ScopedARM64Reg(WA.GetReg());
 
+  // STV_GC_JITFAR_x: si el salto es condicional y va HACIA ADELANTE, el camino tomado (LR,
+  // vaciado MaintainState, branch watch, downcount y WriteExit) se emite en far code y en near
+  // queda solo la condicion invertida (que salta al codigo que sigue) + un B a far. Los saltos
+  // hacia atras (la vuelta de un bucle: otro bloque o el inicio de este) se quedan en near.
+  // El vaciado MaintainState solo emite stores y no cambia el estado del cache, asi que el camino
+  // near sigue con el estado intacto, igual que hoy.
+  const bool stv_far = m_stv_jit_far && js.op->branchTo > js.compilerPC &&
+                       ((inst.BO & BO_DONT_DECREMENT_FLAG) == 0 ||
+                        (inst.BO & BO_DONT_CHECK_CONDITION) == 0);
+
   {
     FixupBranch pCTRDontBranch;
     if ((inst.BO & BO_DONT_DECREMENT_FLAG) == 0)  // Decrement and test CTR
@@ -203,6 +213,13 @@ void JitArm64::bcx(UGeckoInstruction inst)
     {
       pConditionDontBranch =
           JumpIfCRFieldBit(inst.BI >> 2, 3 - (inst.BI & 3), !(inst.BO_2 & BO_BRANCH_IF_TRUE));
+    }
+
+    if (stv_far)
+    {
+      FixupBranch to_far = B();
+      SwitchToFarCode();
+      SetJumpTarget(to_far);
     }
 
     if (inst.LK)
@@ -234,6 +251,9 @@ void JitArm64::bcx(UGeckoInstruction inst)
     {
       WriteExit(js.op->branchTo, inst.LK, js.compilerPC + 4, WA);
     }
+
+    if (stv_far)
+      SwitchToNearCode();
 
     if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)
       SetJumpTarget(pConditionDontBranch);
@@ -315,6 +335,12 @@ void JitArm64::bclrx(UGeckoInstruction inst)
   if (conditional || inst.LK)
     WB = gpr.GetScopedReg();
 
+  // STV_GC_JITFAR_x: en un blr CONDICIONAL el camino tomado (cargar LR, vaciado MaintainState,
+  // branch watch y WriteBLRExit) va a far code; en near quedan la condicion y un B. El destino
+  // (LR) no se conoce al compilar, pero un retorno nunca es la vuelta de un bucle. El blr
+  // incondicional es el final del bloque: no hay nada que saltear, queda como esta.
+  const bool stv_far = m_stv_jit_far && conditional;
+
   {
     FixupBranch pCTRDontBranch;
     if ((inst.BO & BO_DONT_DECREMENT_FLAG) == 0)  // Decrement and test CTR
@@ -334,6 +360,13 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     {
       pConditionDontBranch =
           JumpIfCRFieldBit(inst.BI >> 2, 3 - (inst.BI & 3), !(inst.BO_2 & BO_BRANCH_IF_TRUE));
+    }
+
+    if (stv_far)
+    {
+      FixupBranch to_far = B();
+      SwitchToFarCode();
+      SetJumpTarget(to_far);
     }
 
     LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
@@ -381,6 +414,9 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     {
       WriteBLRExit(WA);
     }
+
+    if (stv_far)
+      SwitchToNearCode();
 
     if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)
       SetJumpTarget(pConditionDontBranch);

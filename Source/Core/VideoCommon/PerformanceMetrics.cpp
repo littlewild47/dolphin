@@ -20,6 +20,12 @@
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
+#if defined(_M_ARM_64)
+// STV_GC_JITFAR_x: interruptor g_stv_jit_far del JIT ARM64 y vaciado de su cache.
+#include "Core/PowerPC/JitArm64/Jit.h"
+#include "Core/PowerPC/JitInterface.h"
+#include "Core/System.h"
+#endif
 #endif
 
 PerformanceMetrics::PerformanceMetrics()
@@ -114,7 +120,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
   if (clock_time - stv_ultima >= std::chrono::seconds{1})
   {
     stv_ultima = clock_time;
-    // STV_GC_JITVALV_x (EXPLORACION): debug.stv.gc.jit = "f=0|1 r=0|1" pone AccurateFmadds y JITFollowBranch en la
+    // STV_GC_JITVALV_x (EXPLORACION): debug.stv.gc.jit = "f=0|1 r=0|1 x=0|1" pone AccurateFmadds y JITFollowBranch en la
     // capa actual; Dolphin los toma en el proximo CheckForConfigChanges (hilo de CPU) y vacia la cache del JIT.
     {
       char j[PROP_VALUE_MAX] = {};
@@ -128,6 +134,32 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           Config::SetCurrent(Config::MAIN_ACCURATE_FMADDS, q[f + 2] == '1');
         if (r != std::string::npos)
           Config::SetCurrent(Config::MAIN_JIT_FOLLOW_BRANCH, q[r + 2] == '1');
+#if defined(_M_ARM_64)
+        // STV_GC_JITFAR_x: "x=0|1" pone g_stv_jit_far y, si cambio, vacia la cache del JIT para
+        // que todo se recompile con el valor nuevo. Es seguro aca porque esto corre en el hilo de
+        // CPU dentro de CoreTiming::Advance (evento del VI -> Throttle -> CountPerformanceMarker),
+        // llamado desde la rutina do_timing del JIT: es el mismo contexto en que
+        // CheckForConfigChanges (al principio de Advance) ya llama a JitBase::ClearCache. Al
+        // volver de Advance, do_timing salta a dispatcher_no_check, que no encuentra bloque
+        // (blocks.Clear vacio los puntos de entrada), hace ResetStack (descarta las direcciones de
+        // retorno de la pila del blr, que apuntaban a codigo borrado) y recompila. Ningun puntero
+        // a codigo JIT queda vivo en la pila de C++: do_timing es parte de las rutinas, que
+        // GenerateAsm reescribe identicas en el mismo lugar. Con el hilo de CPU, CPUThreadGuard
+        // no pausa nada (solo documenta el contrato); fuera de ese hilo no se toca nada.
+        const auto x = q.find("x=");
+        if (x != std::string::npos && Core::IsCPUThread())
+        {
+          const bool nuevo = q[x + 2] == '1';
+          if (nuevo != g_stv_jit_far)
+          {
+            g_stv_jit_far = nuevo;
+            auto& system = Core::System::GetInstance();
+            system.GetJitInterface().ClearCache(Core::CPUThreadGuard{system});
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: far=%d (cache del JIT vaciada)",
+                                nuevo ? 1 : 0);
+          }
+        }
+#endif
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: %s", j);
       }
     }

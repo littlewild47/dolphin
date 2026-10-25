@@ -24,6 +24,20 @@ void JitArm64BlockCache::WriteLinkBlock(Arm64Gen::ARM64XEmitter& emit,
 {
   const u8* start = emit.GetCodePtr();
 
+  // STV_GC_JITFAR_x: con las salidas en far code, el enlace puede quedar en far_1 apuntando a un
+  // bloque de near_0 (o en far_0 apuntando a near_1): hasta 192 MB, fuera del alcance de B/BL
+  // (+-128 MB). En ese caso se escribe la salida sin enlazar (via dispatcher, que si esta al
+  // alcance: ver ResetFreeMemoryRanges) en vez de un salto con la distancia truncada. Desde near
+  // code en la practica no pasa (near_0 y near_1 juntos miden 128 MB): no cambia lo de antes.
+  // El margen de 16 bytes cubre la posicion del B/BL dentro de los 12 bytes del enlace.
+  if (dest)
+  {
+    const s64 distance = reinterpret_cast<s64>(dest->normalEntry) - reinterpret_cast<s64>(start);
+    constexpr s64 max_branch = 0x8000000 - 16;
+    if (distance >= max_branch || distance <= -max_branch)
+      dest = nullptr;
+  }
+
   if (!dest)
   {
     emit.MOVI2R(DISPATCHER_PC, source.exitAddress);
