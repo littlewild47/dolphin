@@ -168,6 +168,22 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_DISPCACHE_x: debug.stv.gc.dcache = 0|1 apaga/prende la cache chica de destinos del despachador (en la
+    // tabla de ajustes del JIT: el proximo CheckForConfigChanges vacia la cache y regenera el despachador).
+    {
+      char dk[PROP_VALUE_MAX] = {};
+      static int stv_dk_prev = -1;
+      if (__system_property_get("debug.stv.gc.dcache", dk) > 0 && (dk[0] == '0' || dk[0] == '1'))
+      {
+        const int n = dk[0] - '0';
+        if (n != stv_dk_prev)
+        {
+          stv_dk_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_DISP_CACHE, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: dcache=%d", n);
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {

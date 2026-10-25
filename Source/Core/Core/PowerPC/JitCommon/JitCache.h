@@ -162,6 +162,18 @@ public:
   // Code Cache
   u8** GetEntryPoints();
   JitBlock** GetFastBlockMapFallback();
+
+  // STV_GC_DISPCACHE_x: cache chica delante de la tabla grande de puntos de entrada. Entrada = {clave, destino};
+  // clave = indice de la tabla grande * 8 (lo que el despachador ya calcula en X9: pc << 1 | flags << 33), y la
+  // ranura es (pc >> 2) & 255 = clave/8 & 255. La llena el despachador cuando la tabla grande acierta; toda
+  // escritura de la tabla grande invalida su ranura (STVDispInvalidar), asi nunca salta a un bloque destruido.
+  struct STVDispEntrada
+  {
+    u64 clave;
+    const u8* destino;
+  };
+  static constexpr u32 STV_DISP_RANURAS = 256;
+  STVDispEntrada* GetSTVDisp() { return m_stv_disp.data(); }
   void RunOnBlocks(const Core::CPUThreadGuard& guard,
                    const std::function<void(const JitBlock&)>& f) const;
   void WipeBlockProfilingData(const Core::CPUThreadGuard& guard);
@@ -207,6 +219,20 @@ private:
 
   // Fast but risky block lookup based on fast_block_map.
   size_t FastLookupIndexForAddress(u32 address, u32 msr);
+
+  // STV_GC_DISPCACHE_x: invalida la ranura de la cache chica que guarda `index` (si la guarda).
+  void STVDispInvalidar(size_t index)
+  {
+    STVDispEntrada& e = m_stv_disp[index & (STV_DISP_RANURAS - 1)];
+    if (e.clave == static_cast<u64>(index) * 8)
+      e.clave = ~u64{0};
+  }
+  void STVDispVaciar()
+  {
+    for (auto& e : m_stv_disp)
+      e = {~u64{0}, nullptr};
+  }
+  alignas(64) std::array<STVDispEntrada, STV_DISP_RANURAS> m_stv_disp;
 
   // links_to hold all exit points of all valid blocks in a reverse way.
   // It is used to query all blocks which links to an address.

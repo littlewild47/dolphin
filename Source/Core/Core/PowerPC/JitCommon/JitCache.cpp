@@ -94,6 +94,8 @@ void JitBaseBlockCache::Clear()
 
   if (m_entry_points_ptr)
     m_entry_points_arena.Clear();
+  // STV_GC_DISPCACHE_x
+  STVDispVaciar();
 }
 
 void JitBaseBlockCache::Reset()
@@ -149,6 +151,7 @@ void JitBaseBlockCache::FinalizeBlock(JitBlock& block, bool block_link,
   if (m_entry_points_ptr)
   {
     m_entry_points_arena.EnsureMemoryPageWritable(index * sizeof(u8*));
+    STVDispInvalidar(index);  // STV_GC_DISPCACHE_x
     m_entry_points_ptr[index] = block.normalEntry;
   }
   else
@@ -503,6 +506,8 @@ void JitBaseBlockCache::DestroyBlock(JitBlock& block)
     {
       m_entry_points_ptr[block.fast_block_map_index] = nullptr;
     }
+    // STV_GC_DISPCACHE_x: siempre (aunque la tabla grande ya apunte a otro bloque, la cache chica podria guardar este).
+    STVDispInvalidar(block.fast_block_map_index);
   }
   else
   {
@@ -543,6 +548,7 @@ JitBlock* JitBaseBlockCache::MoveBlockIntoFastCache(u32 addr, CPUEmuFeatureFlags
     {
       m_entry_points_ptr[block->fast_block_map_index] = nullptr;
     }
+    STVDispInvalidar(block->fast_block_map_index);  // STV_GC_DISPCACHE_x
   }
   else
   {
@@ -557,6 +563,7 @@ JitBlock* JitBaseBlockCache::MoveBlockIntoFastCache(u32 addr, CPUEmuFeatureFlags
   if (m_entry_points_ptr)
   {
     m_entry_points_arena.EnsureMemoryPageWritable(index * sizeof(u8*));
+    STVDispInvalidar(index);  // STV_GC_DISPCACHE_x
     m_entry_points_ptr[index] = block->normalEntry;
   }
   else

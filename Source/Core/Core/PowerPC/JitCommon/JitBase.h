@@ -167,6 +167,9 @@ protected:
   // (ppcState.downcount) en W27 dentro del codigo JIT. Esta en JIT_SETTINGS para que cambiarla vacie la
   // cache (y regenere las rutinas comunes) en el mismo ClearCache que la aplica.
   bool m_stv_dc_reg = true;
+  // STV_GC_DISPCACHE_x: el despachador del JIT ARM64 mira primero la cache chica de destinos
+  // (JitBaseBlockCache::GetSTVDisp).
+  bool m_stv_disp_cache = true;
   // STV_GC_JITGF_v1: valor pedido de [Core] STVGprFijos (crudo, sin acotar: se compara contra la
   // configuracion para saber si hay que refrescar) y modo efectivo 0|1|2 que usa JitArm64. El efectivo se fuerza a
   // 0 con jo.memcheck (ver RefreshConfig). No esta en JIT_SETTINGS porque esa tabla es solo de bool.
@@ -177,7 +180,7 @@ protected:
   bool m_cleanup_after_stackfault = false;
   u8* m_stack_guard = nullptr;
 
-  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 26> JIT_SETTINGS;
+  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 27> JIT_SETTINGS;
 
   bool DoesConfigNeedRefresh() const;
   void RefreshConfig();

@@ -109,15 +109,42 @@ void JitArm64::GenerateAsm()
       ARM64Reg block = ARM64Reg::X11;
 
       LDR(IndexType::Unsigned, feature_flags, PPC_REG, PPCSTATE_OFF(feature_flags));
-      MOVP2R(cache_base, GetBlockCache()->GetEntryPoints());
       // The entry points map is indexed by ((feature_flags << 30) | (pc >> 2)).
       // The map contains 8-byte pointers and that means we need to shift feature_flags
       // left by 33 bits and pc left by 1 bit to get the correct offset in the map.
       LSL(pc_and_feature_flags, EncodeRegTo64(DISPATCHER_PC), 1);
       BFI(pc_and_feature_flags, EncodeRegTo64(feature_flags), 33, 31);
+
+      // STV_GC_DISPCACHE_x: la lectura de la tabla grande (dispersa, 64 GiB virtuales) falla en la cache de datos
+      // casi siempre: en Wind Waker el despachador era 6,2 % del hilo de CPU y el 42 % de eso esperaba esta carga.
+      // Antes se mira una cache de 256 destinos recientes ({clave = X9, destino}, ranura = (pc >> 2) & 255) que
+      // cabe en la L1. Con la valvula apagada se salta con un B y la escritura es un NOP: la disposicion es la
+      // misma en los dos modos (ver STVDcGuardar: las rutinas se regeneran con una llamada en vuelo).
+      const bool stv_dcache = m_stv_disp_cache;
+      const ARM64Reg stv_ranura = ARM64Reg::X12, stv_entrada = ARM64Reg::X13, stv_clave = ARM64Reg::X14;
+      FixupBranch stv_saltar;
+      if (stv_dcache)
+        UBFX(EncodeRegTo32(stv_ranura), DISPATCHER_PC, 2, 8);
+      else
+        stv_saltar = B();
+      MOVP2R(stv_entrada, GetBlockCache()->GetSTVDisp());
+      ADD(stv_entrada, stv_entrada, stv_ranura, ArithOption(stv_ranura, ShiftType::LSL, 4));
+      LDP(IndexType::Signed, stv_clave, block, stv_entrada, 0);
+      CMP(stv_clave, pc_and_feature_flags);
+      FixupBranch stv_falla = B(CC_NEQ);
+      BR(block);
+      SetJumpTarget(stv_falla);
+      if (!stv_dcache)
+        SetJumpTarget(stv_saltar);
+
+      MOVP2R(cache_base, GetBlockCache()->GetEntryPoints());
       LDR(block, cache_base, pc_and_feature_flags);
 
       FixupBranch not_found = CBZ(block);
+      if (stv_dcache)
+        STP(IndexType::Signed, pc_and_feature_flags, block, stv_entrada, 0);
+      else
+        NOP();
       BR(block);
       SetJumpTarget(not_found);
     }
