@@ -336,6 +336,13 @@ void CommandProcessorManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(base | FIFO_READ_POINTER_HI, fifo_read_hi_r, fifo_read_hi_w);
 }
 
+// STV_GC_FIFO_v1: en la consola STV (Cortex-A55) cada rafaga de 32 bytes hacia la GPU pagaba dos operaciones atomicas
+// de lectura-modificacion-escritura y dos escrituras sobre campos que el hilo de video lee y escribe: la linea de cache
+// viaja entre nucleos en cada rafaga (~3 % del hilo de CPU en Twilight Princess). CPWritePointer tiene un solo
+// escritor en juego (el hilo de CPU: esta funcion y los registros MMIO; Init y DoState corren con todo detenido), asi
+// que la suma atomica pasa a carga y guardado; los flags de marca de agua se escriben solo si cambian.
+bool g_stv_fifo_rapido = true;
+
 void CommandProcessorManager::GatherPipeBursted()
 {
   SetCPStatusFromCPU();
@@ -368,7 +375,12 @@ void CommandProcessorManager::GatherPipeBursted()
   }
   else
   {
-    m_fifo.CPWritePointer.fetch_add(GPFifo::GATHER_PIPE_SIZE, std::memory_order_relaxed);
+    if (g_stv_fifo_rapido)
+      m_fifo.CPWritePointer.store(
+          m_fifo.CPWritePointer.load(std::memory_order_relaxed) + GPFifo::GATHER_PIPE_SIZE,
+          std::memory_order_relaxed);
+    else
+      m_fifo.CPWritePointer.fetch_add(GPFifo::GATHER_PIPE_SIZE, std::memory_order_relaxed);
   }
 
   if (m_cp_ctrl_reg.GPReadEnable && m_cp_ctrl_reg.GPLinkEnable)
@@ -514,12 +526,25 @@ void CommandProcessorManager::SetCPStatusFromGPU()
 void CommandProcessorManager::SetCPStatusFromCPU()
 {
   // overflow & underflow check
-  m_fifo.bFF_HiWatermark.store(
-      (m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed) > m_fifo.CPHiWatermark),
-      std::memory_order_relaxed);
-  m_fifo.bFF_LoWatermark.store(
-      (m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed) < m_fifo.CPLoWatermark),
-      std::memory_order_relaxed);
+  if (g_stv_fifo_rapido)
+  {
+    // STV_GC_FIFO_v1: solo se escribe si cambia (la escritura ensuciaba la linea que lee el hilo de video).
+    const u32 distancia = m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed);
+    const u32 hi = distancia > m_fifo.CPHiWatermark ? 1 : 0, lo = distancia < m_fifo.CPLoWatermark ? 1 : 0;
+    if (m_fifo.bFF_HiWatermark.load(std::memory_order_relaxed) != hi)
+      m_fifo.bFF_HiWatermark.store(hi, std::memory_order_relaxed);
+    if (m_fifo.bFF_LoWatermark.load(std::memory_order_relaxed) != lo)
+      m_fifo.bFF_LoWatermark.store(lo, std::memory_order_relaxed);
+  }
+  else
+  {
+    m_fifo.bFF_HiWatermark.store(
+        (m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed) > m_fifo.CPHiWatermark),
+        std::memory_order_relaxed);
+    m_fifo.bFF_LoWatermark.store(
+        (m_fifo.CPReadWriteDistance.load(std::memory_order_relaxed) < m_fifo.CPLoWatermark),
+        std::memory_order_relaxed);
+  }
 
   bool bpInt = m_fifo.bFF_Breakpoint.load(std::memory_order_relaxed) &&
                m_fifo.bFF_BPInt.load(std::memory_order_relaxed);
