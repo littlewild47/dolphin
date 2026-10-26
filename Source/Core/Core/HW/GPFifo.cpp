@@ -18,7 +18,7 @@
 
 namespace CommandProcessor
 {
-extern bool g_stv_fifo_lote;  // STV_GC_FIFO2_x
+extern bool g_stv_fifo_lote;  // STV_GC_FIFO3_v1
 }
 
 namespace GPFifo
@@ -87,7 +87,7 @@ void GPFifoManager::ResetGatherPipe()
   SetGatherPipeCount(0);
 }
 
-// STV_GC_FIFO2_x (EXPLORACION): contadores para la linea STVGC (vaciados y rafagas por segundo).
+// STV_GC_FIFO3_v1: contadores para la linea STVGC (vaciados y rafagas por segundo, con las metricas prendidas).
 u64 g_stv_vaciados = 0, g_stv_rafagas = 0;
 
 void GPFifoManager::UpdateGatherPipe()
@@ -111,7 +111,7 @@ void GPFifoManager::UpdateGatherPipe()
     else
       processor_interface.m_fifo_cpu_write_pointer += GATHER_PIPE_SIZE;
 
-    // STV_GC_FIFO2_x: con el lote, el aviso al procesador de comandos va una vez despues del lazo.
+    // STV_GC_FIFO3_v1: con el lote, el aviso al procesador de comandos va una vez despues del lazo.
     if (!CommandProcessor::g_stv_fifo_lote)
       system.GetCommandProcessor().GatherPipeBursted();
   }
@@ -125,17 +125,17 @@ void GPFifoManager::UpdateGatherPipe()
   SetGatherPipeCount(pipe_count);
 }
 
-// STV_GC_FIFO2_x: umbral de vaciado tambien en los caminos de C++ (escrituras lentas al FIFO); lo fija la valvula.
+// STV_GC_FIFO3_v1: umbral de vaciado tambien en los caminos de C++ (escrituras lentas al FIFO); lo fija la valvula.
 u32 g_stv_gp_umbral_c = GATHER_PIPE_SIZE;
 
-// STV_GC_FIFO3_x: solo con el umbral por encima de 32 (si no, no hay nada retenido y el camino es el de Dolphin).
+// STV_GC_FIFO3_v1: solo con el umbral por encima de 32 (si no, no hay nada retenido y el camino es el de Dolphin).
 void GPFifoManager::STVVaciarSiRetiene()
 {
   if (g_stv_gp_umbral_c > GATHER_PIPE_SIZE)
     STVVaciarRafagas();
 }
 
-// STV_GC_FIFO3_x: vacia las rafagas completas (umbral fijo de 32, el de Dolphin). La llama CoreTiming::Advance.
+// STV_GC_FIFO3_v1: vacia las rafagas completas (umbral fijo de 32, el de Dolphin). La llama CoreTiming::Advance.
 void GPFifoManager::STVVaciarRafagas()
 {
   if (GetGatherPipeCount() >= GATHER_PIPE_SIZE)
@@ -161,7 +161,7 @@ void GPFifoManager::CheckGatherPipe()
   }
 }
 
-// STV_GC_FIFOREG_x: con la valvula, toda escritura lenta al FIFO se anota en js.fifoWriteAddresses (no solo la que
+// STV_GC_FIFOREG_v1: con la valvula, toda escritura lenta al FIFO se anota en js.fifoWriteAddresses (no solo la que
 // cruza los 32 bytes): asi el JIT recompila esa instruccion con el camino rapido y no vuelve por aca.
 void GPFifoManager::STVAnotar()
 {

@@ -349,7 +349,7 @@ void CoreTimingManager::Advance()
 {
   CPUThreadConfigCallback::CheckForConfigChanges();
 
-  // STV_GC_FIFO3_x: con el umbral del gather pipe por encima de 32, al terminar cada tramo de tiempo se vacian las
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32, al terminar cada tramo de tiempo se vacian las
   // rafagas completas que quedaron esperando (como en Dolphin, donde cada 32 bytes salen enseguida): un juego que
   // escribe un token y espera su interrupcion no queda colgado con el token adentro del bufer.
   if (GPFifo::g_stv_gp_umbral_c > GPFifo::GATHER_PIPE_SIZE)

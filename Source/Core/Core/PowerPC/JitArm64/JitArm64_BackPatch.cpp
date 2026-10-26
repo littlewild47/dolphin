@@ -68,7 +68,7 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
 
   bool in_far_code = false;
 
-  // STV_GC_FIFOREG_x: una escritura cuya direccion esta en un registro y que ya se vio escribir en el FIFO de la
+  // STV_GC_FIFOREG_v1: una escritura cuya direccion esta en un registro y que ya se vio escribir en el FIFO de la
   // GPU (js.fifoWriteAddresses, lo llena GPFifo al pasar por el camino lento) iba SIEMPRE por el camino lento:
   // el acceso de fastmem falla en 0xCC008000, se reescribe a una llamada y cada escritura pasa por WriteFromJit ->
   // WriteToHardware -> MMIO -> GPFifo::Write (Simpsons Hit & Run: ~5 % del hilo de CPU, sobre todo psq_st de

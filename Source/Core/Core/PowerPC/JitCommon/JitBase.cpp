@@ -14,6 +14,7 @@
 
 #include "Core/CPUThreadConfigCallback.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/HW/GPFifo.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
@@ -62,6 +63,11 @@
 // After resetting the stack to the top, we call _resetstkoflw() to restore
 // the guard page at the 256kb mark.
 
+namespace CommandProcessor
+{
+extern bool g_stv_fifo_lote;  // STV_GC_FIFO3_v1 (VideoCommon/CommandProcessor.cpp)
+}
+
 const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 28> JitBase::JIT_SETTINGS{{
     {&JitBase::bJITOff, &Config::MAIN_DEBUG_JIT_OFF},
     {&JitBase::bJITLoadStoreOff, &Config::MAIN_DEBUG_JIT_LOAD_STORE_OFF},
@@ -92,7 +98,7 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 28> JitB
     {&JitBase::m_stv_dc_reg, &Config::MAIN_STV_DOWNCOUNT_REG},
     // STV_GC_BLRFIX_v1
     {&JitBase::m_stv_blr_fix, &Config::MAIN_STV_BLR_FIX},
-    // STV_GC_FIFOREG_x
+    // STV_GC_FIFOREG_v1
     {&JitBase::m_stv_fifo_reg, &Config::MAIN_STV_FIFO_REG},
 }};
 
@@ -128,7 +134,7 @@ bool JitBase::DoesConfigNeedRefresh() const
   // STV_GC_JITGF_v1: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
   if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
     return true;
-  // STV_GC_FIFO2_x: idem para el umbral del gather pipe.
+  // STV_GC_FIFO3_v1: idem para el umbral del gather pipe.
   if (m_stv_gp_pedido != Config::Get(Config::MAIN_STV_GP_UMBRAL))
     return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
@@ -168,9 +174,13 @@ void JitBase::RefreshConfig()
   // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada
   // sincronizan a mano (DoJit) y el perfilado de bloques (jitdump p) prende la depuracion.
   m_stv_gf_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS);
-  // STV_GC_FIFO2_x: umbral acotado a 32..256 en multiplos de 32 (el bufer del gather pipe mide 512).
+  // STV_GC_FIFO3_v1: umbral acotado a 32..256 en multiplos de 32 (el bufer del gather pipe mide 512).
   m_stv_gp_pedido = Config::Get(Config::MAIN_STV_GP_UMBRAL);
   m_stv_gp_umbral = (m_stv_gp_pedido >= 32 && m_stv_gp_pedido <= 256) ? (m_stv_gp_pedido & ~31) : 32;
+  // STV_GC_FIFO3_v1: los caminos de C++ (FastCheckGatherPipe, CheckGatherPipe, Advance, PI) leen el mismo umbral; el
+  // aviso en lote va prendido con el umbral por encima de 32. Se fijan aca, en el mismo ClearCache que recompila.
+  GPFifo::g_stv_gp_umbral_c = m_stv_gp_umbral;
+  CommandProcessor::g_stv_fifo_lote = m_stv_gp_umbral > GPFifo::GATHER_PIPE_SIZE;
   {
     const int pedido = (m_stv_gf_pedido >= 0 && m_stv_gf_pedido <= 2) ? m_stv_gf_pedido : 0;
     const int efectivo = jo.memcheck ? 0 : pedido;

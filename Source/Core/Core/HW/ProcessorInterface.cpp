@@ -89,7 +89,7 @@ void ProcessorInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    processor_interface.UpdateException();
                  }));
 
-  // STV_GC_FIFO3_x: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
   // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
   // estarian en Dolphin.
   mmio->Register(base | PI_FIFO_BASE, MMIO::ComplexRead<u32>([](Core::System& system, u32) {
@@ -103,7 +103,7 @@ void ProcessorInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    processor_interface.m_fifo_cpu_base = val & mask;
                  }));
 
-  // STV_GC_FIFO3_x: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
   // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
   // estarian en Dolphin.
   mmio->Register(base | PI_FIFO_END, MMIO::ComplexRead<u32>([](Core::System& system, u32) {
@@ -117,7 +117,7 @@ void ProcessorInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    processor_interface.m_fifo_cpu_end = val & mask;
                  }));
 
-  // STV_GC_FIFO3_x: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
+  // STV_GC_FIFO3_v1: con el umbral del gather pipe por encima de 32 puede haber rafagas completas retenidas; antes
   // de leer o mover el FIFO del CPU (listas de display: GXBeginDisplayList/GXEndDisplayList) se vacian, como
   // estarian en Dolphin.
   mmio->Register(base | PI_FIFO_WPTR, MMIO::ComplexRead<u32>([](Core::System& system, u32) {

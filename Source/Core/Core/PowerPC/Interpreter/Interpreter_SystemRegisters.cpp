@@ -394,7 +394,7 @@ void Interpreter::mtspr(Interpreter& interpreter, UGeckoInstruction inst)
     ASSERT_MSG(POWERPC, ppc_state.spr[SPR_WPAR] == GPFifo::GATHER_PIPE_PHYSICAL_ADDRESS,
                "Gather pipe changed to unexpected address {:08x} @ PC {:08x}",
                ppc_state.spr[SPR_WPAR], ppc_state.pc);
-    // STV_GC_FIFO3_x: ResetGatherPipe descarta lo pendiente; con el umbral por encima de 32 puede haber rafagas
+    // STV_GC_FIFO3_v1: ResetGatherPipe descarta lo pendiente; con el umbral por encima de 32 puede haber rafagas
     // completas que en Dolphin ya habrian salido: se vacian antes.
     interpreter.m_system.GetGPFifo().STVVaciarSiRetiene();
     interpreter.m_system.GetGPFifo().ResetGatherPipe();

@@ -418,7 +418,7 @@ void CommandProcessorManager::GatherPipeBursted()
              "FIFOs linked but out of sync");
 }
 
-// STV_GC_FIFO2_x: n rafagas de 32 B de una vez (las copio UpdateGatherPipe, que ya avanzo el puntero del PI rafaga a
+// STV_GC_FIFO3_v1: n rafagas de 32 B de una vez (las copio UpdateGatherPipe, que ya avanzo el puntero del PI rafaga a
 // rafaga). Con el FIFO enlazado hace lo de GatherPipeBursted una sola vez: el estado al empezar, el puntero de
 // escritura con su vuelta rafaga a rafaga, UNA suma atomica de la distancia y UN aviso al hilo de video. Sin enlazar,
 // o con una sola rafaga, es GatherPipeBursted tal cual.
