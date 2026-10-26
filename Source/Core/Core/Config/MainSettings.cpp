@@ -58,6 +58,8 @@ const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
 const Info<bool> MAIN_STV_FIFO_REG{{System::Main, "Core", "STVFifoReg"}, true};
 // STV_GC_CERO_v1: ver JitArm64_FloatingPoint.cpp (simple a doble con un 0,0 sin la rutina exacta).
 const Info<bool> MAIN_STV_CERO{{System::Main, "Core", "STVCeroRapido"}, true};
+// STV_GC_FIFORUT_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO desde las rutinas cuantizadas).
+const Info<bool> MAIN_STV_FIFO_RUT{{System::Main, "Core", "STVFifoRutina"}, true};
 // STV_GC_FIFO3_v1: bytes del gather pipe que se juntan antes de vaciarlo (Dolphin: 32). Por defecto 256.
 const Info<int> MAIN_STV_GP_UMBRAL{{System::Main, "Core", "STVGatherUmbral"}, 256};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};

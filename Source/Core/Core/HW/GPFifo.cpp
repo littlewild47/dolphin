@@ -237,4 +237,12 @@ void FastCheckGatherPipe(GPFifoManager& gpfifo)
 {
   gpfifo.FastCheckGatherPipe();
 }
+
+// STV_GC_FIFORUT_v1: la llaman las rutinas cuantizadas cuando su escritura directa al FIFO llega al umbral. Es el
+// chequeo del camino lento (CheckGatherPipe): vacia y anota la PC (la guardo el que llamo a la rutina) para que el
+// bloque se recompile con el chequeo de interrupcion despues de esa instruccion.
+void STVCheckGatherPipe(GPFifoManager& gpfifo)
+{
+  gpfifo.CheckGatherPipe();
+}
 }  // namespace GPFifo
