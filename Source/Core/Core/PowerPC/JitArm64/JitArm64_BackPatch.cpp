@@ -67,6 +67,47 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
   const bool emit_slow_access = mode != MemAccessMode::AlwaysFastAccess;
 
   bool in_far_code = false;
+
+  // STV_GC_FIFOREG_x: una escritura cuya direccion esta en un registro y que ya se vio escribir en el FIFO de la
+  // GPU (js.fifoWriteAddresses, lo llena GPFifo al pasar por el camino lento) iba SIEMPRE por el camino lento:
+  // el acceso de fastmem falla en 0xCC008000, se reescribe a una llamada y cada escritura pasa por WriteFromJit ->
+  // WriteToHardware -> MMIO -> GPFifo::Write (Simpsons Hit & Run: ~5 % del hilo de CPU, sobre todo psq_st de
+  // pares de floats). Dolphin solo acelera las de direccion constante. Aca, delante del acceso normal: si la
+  // direccion es 0xCC008000, se escribe en el gather pipe como en el caso constante (mismo intercambio de bytes que
+  // el acceso de fastmem) y se salta el resto; si no, sigue el camino de siempre. W1 y X30 son temporales de los
+  // tres emisores que llegan aca (stX, stfX, psq_st sin cuantizar); D0 tambien (el acceso rapido ya lo usa).
+  std::optional<FixupBranch> stv_fifo_listo;
+  if (m_stv_fifo_reg && (flags & BackPatchInfo::FLAG_STORE) && !(flags & BackPatchInfo::FLAG_ZERO_256) &&
+      mode == MemAccessMode::Auto && !emitting_routine && jo.fastmem && !jo.memcheck &&
+      jo.optimizeGatherPipe && js.fifoWriteAddresses.contains(js.compilerPC) &&
+      m_mmu.IsOptimizableGatherPipeWrite(0xCC008000))
+  {
+    MOVI2R(ARM64Reg::W1, 0xCC008000);
+    CMP(EncodeRegTo32(addr), ARM64Reg::W1);
+    FixupBranch no_es_fifo = B(CC_NEQ);
+    LDR(IndexType::Unsigned, ARM64Reg::X30, PPC_REG, PPCSTATE_OFF(gather_pipe_ptr));
+    if (flags & BackPatchInfo::FLAG_FLOAT)
+    {
+      ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::D0, EncodeRegToDouble(RS),
+                                          flags, true);
+      m_float_emit.STR(access_size, IndexType::Post, temp, ARM64Reg::X30, access_size >> 3);
+    }
+    else
+    {
+      ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::W1, RS, flags, true);
+      if (flags & BackPatchInfo::FLAG_SIZE_32)
+        STR(IndexType::Post, temp, ARM64Reg::X30, 4);
+      else if (flags & BackPatchInfo::FLAG_SIZE_16)
+        STRH(IndexType::Post, temp, ARM64Reg::X30, 2);
+      else
+        STRB(IndexType::Post, temp, ARM64Reg::X30, 1);
+    }
+    STR(IndexType::Unsigned, ARM64Reg::X30, PPC_REG, PPCSTATE_OFF(gather_pipe_ptr));
+    js.fifoBytesSinceCheck += access_size >> 3;
+    stv_fifo_listo = B();
+    SetJumpTarget(no_es_fifo);
+  }
+
   const u8* fast_access_start = GetCodePtr();
   std::optional<FixupBranch> slow_access_fixup;
 
@@ -309,6 +350,9 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
       SwitchToNearCode();
     }
   }
+
+  if (stv_fifo_listo)
+    SetJumpTarget(*stv_fifo_listo);
 }
 
 void JitArm64::FlushPPCStateBeforeSlowAccess(ARM64Reg temp_gpr, ARM64Reg temp_fpr)
