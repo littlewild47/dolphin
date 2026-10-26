@@ -92,7 +92,7 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 28> JitB
     {&JitBase::m_stv_dc_reg, &Config::MAIN_STV_DOWNCOUNT_REG},
     // STV_GC_BLRFIX_v1
     {&JitBase::m_stv_blr_fix, &Config::MAIN_STV_BLR_FIX},
-    // STV_GC_FIFOREG_x
+    // STV_GC_FIFOREG_v1
     {&JitBase::m_stv_fifo_reg, &Config::MAIN_STV_FIFO_REG},
 }};
 

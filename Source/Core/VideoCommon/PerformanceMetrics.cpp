@@ -183,7 +183,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
-    // STV_GC_FIFOREG_x: debug.stv.gc.fiforeg = 0|1 (tabla de ajustes del JIT: vacia la cache).
+    // STV_GC_FIFOREG_v1: debug.stv.gc.fiforeg = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char fr[PROP_VALUE_MAX] = {};
       static int stv_fr_prev = -1;

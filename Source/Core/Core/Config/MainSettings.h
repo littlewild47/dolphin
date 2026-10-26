@@ -68,7 +68,7 @@ extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 extern const Info<int> MAIN_STV_GPR_FIJOS;
 // STV_GC_BLRFIX_v1: una llamada indirecta (bcctrl) empuja la direccion de retorno correcta aunque su temporal sea W26.
 extern const Info<bool> MAIN_STV_BLR_FIX;
-// STV_GC_FIFOREG_x: una escritura que ya se vio ir al FIFO de la GPU (0xCC008000) con la direccion en un registro
+// STV_GC_FIFOREG_v1: una escritura que ya se vio ir al FIFO de la GPU (0xCC008000) con la direccion en un registro
 // se compila con un camino rapido al gather pipe, como las de direccion constante.
 extern const Info<bool> MAIN_STV_FIFO_REG;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.

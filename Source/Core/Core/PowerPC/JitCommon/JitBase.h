@@ -169,7 +169,7 @@ protected:
   bool m_stv_dc_reg = true;
   bool m_stv_blr_fix = true;  // STV_GC_BLRFIX_v1
 public:
-  bool m_stv_fifo_reg = true;  // STV_GC_FIFOREG_x (la lee GPFifo: publica)
+  bool m_stv_fifo_reg = true;  // STV_GC_FIFOREG_v1 (la lee GPFifo: publica)
 protected:
   // STV_GC_JITGF_v1: valor pedido de [Core] STVGprFijos (crudo, sin acotar: se compara contra la
   // configuracion para saber si hay que refrescar) y modo efectivo 0|1|2 que usa JitArm64. El efectivo se fuerza a
