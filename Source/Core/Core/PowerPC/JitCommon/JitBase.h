@@ -172,6 +172,7 @@ protected:
   // configuracion para saber si hay que refrescar) y modo efectivo 0|1|2 que usa JitArm64. El efectivo se fuerza a
   // 0 con jo.memcheck (ver RefreshConfig). No esta en JIT_SETTINGS porque esa tabla es solo de bool.
   int m_stv_gf_pedido = 0;
+  int m_stv_relleno = 0;  // STV_GC_RELLENO_x
   int m_stv_gf = 0;
 
   bool m_enable_blr_optimization = false;

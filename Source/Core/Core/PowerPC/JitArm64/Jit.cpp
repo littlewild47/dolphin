@@ -1556,6 +1556,11 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     WriteExit(nextPC);
   }
 
+  // STV_GC_RELLENO_x: relleno despues de la ultima salida del bloque (nunca se ejecuta; ocupa cache como si fuera
+  // codigo del bloque, porque el bloque siguiente se emite despues).
+  for (int i = 0; i < m_stv_relleno / 4 && i < 256; i++)
+    BRK(0x77);
+
   if (HasWriteFailed() || m_far_code.HasWriteFailed())
   {
     if (HasWriteFailed())

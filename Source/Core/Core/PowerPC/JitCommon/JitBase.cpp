@@ -126,6 +126,8 @@ bool JitBase::DoesConfigNeedRefresh() const
   // STV_GC_JITGF_v1: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
   if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
     return true;
+  if (m_stv_relleno != Config::Get(Config::MAIN_STV_RELLENO))  // STV_GC_RELLENO_x
+    return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
     return this->*pair.first != Config::Get(*pair.second);
   });
@@ -163,6 +165,7 @@ void JitBase::RefreshConfig()
   // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada
   // sincronizan a mano (DoJit) y el perfilado de bloques (jitdump p) prende la depuracion.
   m_stv_gf_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS);
+  m_stv_relleno = Config::Get(Config::MAIN_STV_RELLENO);  // STV_GC_RELLENO_x
   {
     const int pedido = (m_stv_gf_pedido >= 0 && m_stv_gf_pedido <= 2) ? m_stv_gf_pedido : 0;
     const int efectivo = jo.memcheck ? 0 : pedido;

@@ -183,6 +183,52 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_SSI_x (EXPERIMENTO): debug.stv.gc.ssi = 0|1 cambia [Core] SyncOnSkipIdle en caliente (CoreTiming lo
+    // relee por el aviso de cambio de configuracion).
+    {
+      char si[PROP_VALUE_MAX] = {};
+      static int stv_si_prev = -1;
+      if (__system_property_get("debug.stv.gc.ssi", si) > 0 && (si[0] == '0' || si[0] == '1'))
+      {
+        const int n = si[0] - '0';
+        if (n != stv_si_prev)
+        {
+          stv_si_prev = n;
+          Config::SetCurrent(Config::MAIN_SYNC_ON_SKIP_IDLE, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "core: SyncOnSkipIdle=%d", n);
+        }
+      }
+    }
+    // STV_GC_EFBTEX_x (EXPERIMENTO): debug.stv.gc.efbtex = 0|1 cambia [Hacks] EFBToTextureEnable en caliente.
+    {
+      char et[PROP_VALUE_MAX] = {};
+      static int stv_et_prev = -1;
+      if (__system_property_get("debug.stv.gc.efbtex", et) > 0 && (et[0] == '0' || et[0] == '1'))
+      {
+        const int n = et[0] - '0';
+        if (n != stv_et_prev)
+        {
+          stv_et_prev = n;
+          Config::SetCurrent(Config::GFX_HACK_SKIP_EFB_COPY_TO_RAM, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "video: EFBToTextureEnable=%d", n);
+        }
+      }
+    }
+    // STV_GC_RELLENO_x (EXPERIMENTO): debug.stv.gc.relleno = bytes por bloque (0..1024; recompila al cambiar).
+    {
+      char rl[PROP_VALUE_MAX] = {};
+      static int stv_rl_prev = -1;
+      if (__system_property_get("debug.stv.gc.relleno", rl) > 0)
+      {
+        const int n = atoi(rl);
+        if (n != stv_rl_prev && n >= 0 && n <= 1024)
+        {
+          stv_rl_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_RELLENO, n);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: relleno=%d", n);
+        }
+      }
+    }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
     {
