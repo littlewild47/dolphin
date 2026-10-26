@@ -3,6 +3,7 @@
 
 #include "Core/PowerPC/JitArm64/Jit.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <optional>
 #include <span>
