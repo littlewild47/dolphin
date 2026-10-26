@@ -64,6 +64,8 @@ const Info<bool> MAIN_STV_FIFO_RUT{{System::Main, "Core", "STVFifoRutina"}, true
 const Info<bool> MAIN_STV_GQR{{System::Main, "Core", "STVGqrFijo"}, true};
 // STV_GC_FIFO3_v1: bytes del gather pipe que se juntan antes de vaciarlo (Dolphin: 32). Por defecto 256.
 const Info<int> MAIN_STV_GP_UMBRAL{{System::Main, "Core", "STVGatherUmbral"}, 256};
+// STV_GC_SALTO_x: ver CoreTiming::Idle.
+const Info<bool> MAIN_STV_SALTO{{System::Main, "Core", "STVSaltoCuadros"}, false};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};

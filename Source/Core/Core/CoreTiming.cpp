@@ -35,6 +35,8 @@
 
 namespace CoreTiming
 {
+std::atomic<u64> g_stv_esperas{0}, g_stv_saltos{0};
+
 static constexpr int MAX_SLICE_LENGTH = 20000;
 
 static void EmptyTimedCallback(Core::System& system, u64 userdata, s64 cyclesLate)
@@ -143,6 +145,7 @@ void CoreTimingManager::RefreshConfig()
                                                        1.0f);
   m_config_oc_inv_factor = 1.0f / m_config_oc_factor;
   m_config_sync_on_skip_idle = Config::Get(Config::MAIN_SYNC_ON_SKIP_IDLE);
+  m_stv_salto = Config::Get(Config::MAIN_STV_SALTO);
   m_config_rush_frame_presentation = Config::Get(Config::MAIN_RUSH_FRAME_PRESENTATION);
 
   // We don't want to skip so much throttling that the audio buffer overfills.
@@ -582,10 +585,22 @@ void CoreTimingManager::Idle()
 {
   if (m_config_sync_on_skip_idle)
   {
-    // When the FIFO is processing data we must not advance because in this way
-    // the VI will be desynchronized. So, We are waiting until the FIFO finish and
-    // while we process only the events required by the FIFO.
-    m_system.GetFifo().FlushGpu();
+    // STV_GC_SALTO_x: con la emulacion atrasada (la misma senal que usa VISkip, medida en cada Throttle: mas de 20 ms
+    // detras del reloj), no se espera al hilo de video: se lo despierta y el juego sigue. El juego ve la GPU "lenta"
+    // y pierde cuadros, pero su tiempo no se estira (sin camara lenta). Al dia, la espera de siempre.
+    if (m_stv_salto && m_throttle_disable_vi_int && !Core::WantsDeterminism())
+    {
+      m_system.GetFifo().RunGpu();
+      g_stv_saltos.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+    {
+      // When the FIFO is processing data we must not advance because in this way
+      // the VI will be desynchronized. So, We are waiting until the FIFO finish and
+      // while we process only the events required by the FIFO.
+      m_system.GetFifo().FlushGpu();
+      g_stv_esperas.fetch_add(1, std::memory_order_relaxed);
+    }
   }
 
   auto& ppc_state = m_system.GetPPCState();
