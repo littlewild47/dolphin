@@ -271,19 +271,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       va0 = GPFifo::g_stv_vaciados;
       ra0 = GPFifo::g_stv_rafagas;
     }
-    // STV_GC_SALTO_x: debug.stv.gc.salto = 0|1 (salto de cuadros adaptativo, ver CoreTiming::Idle). Con las metricas,
+    // STV_GC_SALTO_x: debug.stv.gc.salto = 0|1 (salto de cuadros adaptativo con el interruptor VISkip, ver CoreTiming::Idle). Con las metricas,
     // una linea por segundo con los lazos ociosos que esperaron al video y los que no.
     {
       char sa[PROP_VALUE_MAX] = {};
       static int stv_sa_prev = -1;
-      if (__system_property_get("debug.stv.gc.salto", sa) > 0 && (sa[0] == '0' || sa[0] == '1'))
+      if (__system_property_get("debug.stv.gc.salto", sa) > 0 && sa[0] >= '0' && sa[0] <= '9')
       {
         const int n = sa[0] - '0';
         if (n != stv_sa_prev)
         {
           stv_sa_prev = n;
-          Config::SetCurrent(Config::MAIN_STV_SALTO, n == 1);
-          __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: activo=%d", n);
+          Config::SetCurrent(Config::MAIN_STV_SALTO, n);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: modo=%d", n);
         }
       }
       static u64 es0 = 0, sl0 = 0;
@@ -291,10 +291,10 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       const u64 sl = CoreTiming::g_stv_saltos.load(std::memory_order_relaxed);
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
-        __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: esperas=%llu/s saltos=%llu/s activo=%d",
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d",
                             static_cast<unsigned long long>(es - es0),
                             static_cast<unsigned long long>(sl - sl0),
-                            Config::Get(Config::MAIN_STV_SALTO) ? 1 : 0);
+                            Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0);
       es0 = es;
       sl0 = sl;
     }

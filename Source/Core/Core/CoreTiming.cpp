@@ -541,7 +541,10 @@ void CoreTimingManager::UpdateVISkip(TimePoint current_time, TimePoint target_ti
 
 bool CoreTimingManager::GetVISkip() const
 {
-  return m_throttle_disable_vi_int && g_ActiveConfig.bVISkip && !Core::WantsDeterminism();
+  // STV_GC_SALTO_x: VISkip ya no salta interrupciones de VI (con la emulacion siempre atrasada, el juego dejaba de
+  // recibirlas: Wind Waker y Twilight Princess se trababan y la memoria de la GPU crecia hasta que Android cerraba
+  // Dolphin). El interruptor prende el salto de cuadros de Idle.
+  return false;
 }
 
 float CoreTimingManager::GetOverclock() const
@@ -585,12 +588,13 @@ void CoreTimingManager::Idle()
 {
   if (m_config_sync_on_skip_idle)
   {
-    // STV_GC_SALTO_x: con la emulacion atrasada (la misma senal que usa VISkip, medida en cada Throttle: mas de 20 ms
-    // detras del reloj), no se espera al hilo de video: se lo despierta y el juego sigue. El juego ve la GPU "lenta"
-    // y pierde cuadros, pero su tiempo no se estira (sin camara lenta). Al dia, la espera de siempre.
-    if (m_stv_salto && m_throttle_disable_vi_int && !Core::WantsDeterminism())
+    // STV_GC_SALTO_x: con el interruptor VISkip y la emulacion atrasada (la senal de VISkip, medida en cada Throttle:
+    // mas de 20 ms detras del reloj), no se espera al hilo de video y el juego sigue. Un juego que compensa el atraso
+    // (Wind Waker) pierde cuadros pero no se estira su tiempo: sin camara lenta. Al dia, la espera de siempre.
+    // Sin despertar al video: con un aviso por lazo ocioso (~12 mil/s) Wind Waker caia a 8-16 FPS.
+    if (m_stv_salto != 0 && g_ActiveConfig.bVISkip && m_throttle_disable_vi_int &&
+        !Core::WantsDeterminism())
     {
-      m_system.GetFifo().RunGpu();
       g_stv_saltos.fetch_add(1, std::memory_order_relaxed);
     }
     else

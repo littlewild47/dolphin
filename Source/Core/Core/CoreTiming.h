@@ -215,7 +215,7 @@ private:
   float m_config_oc_inv_factor = 1.0f;
   bool m_config_sync_on_skip_idle = false;
   // STV_GC_SALTO_x: salto de cuadros adaptativo (ver Idle).
-  bool m_stv_salto = false;
+  int m_stv_salto = 1;
   bool m_config_rush_frame_presentation = false;
 
   s64 m_throttle_reference_cycle = 0;
