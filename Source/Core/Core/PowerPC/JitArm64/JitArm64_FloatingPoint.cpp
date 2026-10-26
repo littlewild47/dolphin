@@ -812,6 +812,21 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
     }
   }
 
+  // STV_GC_CERO_x: el chequeo de arriba manda tambien los 0,0 (muy comunes) a la rutina exacta, con su llamada y el
+  // guardado de registros. Un +-0,0 se convierte exacto con FCVT aunque FPCR.FZ este puesto. Se reconoce por los bits
+  // (operaciones enteras, que FZ no toca): bits << 1 == 0 -> CMEQ deja la linea en 0xFFFF'FFFF, un NaN para FCMP.
+  // Un denormal con FZ puesto no es cero por bits: sigue a la rutina exacta como antes.
+  std::optional<FixupBranch> stv_cero;
+  if (m_stv_cero && scratch_reg != ARM64Reg::INVALID_REG)
+  {
+    m_float_emit.SHL(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(src_reg), 1);
+    m_float_emit.CMEQ(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(scratch_reg));
+    m_float_emit.FCMP(EncodeRegToSingle(scratch_reg), EncodeRegToSingle(scratch_reg));
+    FixupBranch no_cero = B(CCFlags::CC_VC);
+    stv_cero = B();
+    SetJumpTarget(no_cero);
+  }
+
   // If no (or if we don't have a scratch register), call the bit-exact routine
 
   const BitSet32 gpr_saved = gpr.GetCallerSavedUsed() & BitSet32{0, 1, 2, 3, 4, 30};
@@ -833,6 +848,8 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
       SwitchToNearCode();
 
     SetJumpTarget(fast);
+    if (stv_cero)
+      SetJumpTarget(*stv_cero);
 
     m_float_emit.FCVT(64, 32, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
 
@@ -886,6 +903,26 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
     }
   }
 
+  // STV_GC_CERO_x (ver ConvertSingleToDoubleLower): cada linea que es +-0,0 por bits se reemplaza en el temporal por
+  // 0x3FFF'FFFF (un normal) y se repite el chequeo de arriba con FABS + FCMGT #0 (sin registro de ceros): si las dos
+  // lineas quedan bien (normal, infinito, o cero), FCVTL. Un NaN o un denormal con FZ siguen a la rutina exacta.
+  std::optional<FixupBranch> stv_cero;
+  if (m_stv_cero && scratch_reg != ARM64Reg::INVALID_REG)
+  {
+    const ARM64Reg t = EncodeRegToDouble(scratch_reg);
+    m_float_emit.SHL(32, t, EncodeRegToDouble(src_reg), 1);
+    m_float_emit.CMEQ(32, t, t);
+    m_float_emit.BIC(32, t, 0xC0, 24);
+    m_float_emit.ORR(t, t, EncodeRegToDouble(src_reg));
+    m_float_emit.FABS(32, t, t);
+    m_float_emit.FCMGT(32, t, t);
+    m_float_emit.INS(8, t, 7, t, 0);
+    m_float_emit.FCMP(t);
+    FixupBranch no_cero = B(CCFlags::CC_VC);
+    stv_cero = B();
+    SetJumpTarget(no_cero);
+  }
+
   // If no (or if we don't have a scratch register), call the bit-exact routine
 
   const BitSet32 gpr_saved = gpr.GetCallerSavedUsed() & BitSet32{0, 1, 2, 3, 4, 30};
@@ -910,6 +947,8 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
       SwitchToNearCode();
 
     SetJumpTarget(fast);
+    if (stv_cero)
+      SetJumpTarget(*stv_cero);
     m_float_emit.FCVTL(64, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
 
     SetJumpTarget(continue1);
