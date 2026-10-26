@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "Common/CommonTypes.h"
 
 namespace Core
@@ -16,6 +18,9 @@ struct EventType;
 
 namespace SystemTimers
 {
+// STV_GC_VILAZO_x: eventos del VI corridos (las metricas los leen por segundo).
+extern std::atomic<u64> g_stv_vi_eventos;
+
 /*
 GameCube                   MHz
 flipper <-> ARAM bus:      81 (DSP)
@@ -95,6 +100,12 @@ private:
   static void IPC_HLE_UpdateCallback(Core::System& system, u64 userdata, s64 cycles_late);
   static void GPUSleepCallback(Core::System& system, u64 userdata, s64 cycles_late);
   static void VICallback(Core::System& system, u64 userdata, s64 cycles_late);
+
+public:
+  // STV_GC_VILAZO_x: el VI cambio sus tiempos o sus lineas de interrupcion: su evento pasa a "ciclos" desde ahora.
+  void STVReprogramarVI(s64 ciclos);
+
+private:
   static void DecrementerCallback(Core::System& system, u64 userdata, s64 cycles_late);
   static void PatchEngineCallback(Core::System& system, u64 userdata, s64 cycles_late);
 

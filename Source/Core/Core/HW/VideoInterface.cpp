@@ -57,6 +57,11 @@ static constexpr u32 NUM_HALF_LINES_FOR_SI_POLL = (7 * 2) + 1;  // this is how l
 
 void VideoInterfaceManager::DoState(PointerWrap& p)
 {
+  // STV_GC_VILAZO_x: el estado guarda la posicion exacta del haz; al cargar, sin tope hasta el proximo evento.
+  if (!p.IsReadMode())
+    STVMaterializar(m_system.GetCoreTiming().GetTicks());
+  else
+    m_stv_cuenta_evento = UINT32_MAX;
   p.Do(m_vertical_timing_register);
   p.Do(m_display_control_register);
   p.Do(m_h_timing_0);
@@ -187,6 +192,7 @@ void VideoInterfaceManager::Init()
 
 void VideoInterfaceManager::RefreshConfig()
 {
+  m_stv_vilazo = Config::Get(Config::MAIN_STV_VILAZO);
   m_config_vi_oc_factor =
       Config::Get(Config::MAIN_VI_OVERCLOCK_ENABLE) ? Config::Get(Config::MAIN_VI_OVERCLOCK) : 1.0f;
   if (AchievementManager::GetInstance().IsHardcoreModeActive() && m_config_vi_oc_factor < 1.0f)
@@ -278,8 +284,11 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   {
     mmio->Register(base | mapped_var.addr, MMIO::DirectRead<u16>(mapped_var.ptr),
                    MMIO::ComplexWrite<u16>([mapped_var](Core::System& system, u32, u16 val) {
+                     auto& vi = system.GetVideoInterface();
+                     vi.STVMaterializar(system.GetCoreTiming().GetTicks());
                      *mapped_var.ptr = val;
-                     system.GetVideoInterface().UpdateParameters();
+                     vi.UpdateParameters();
+                     vi.STVReprogramar();
                    }));
   }
 
@@ -317,6 +326,7 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(
       base | VI_VERTICAL_BEAM_POSITION, MMIO::ComplexRead<u16>([](Core::System& system, u32) {
         auto& vi = system.GetVideoInterface();
+        vi.STVMaterializar(system.GetCoreTiming().GetTicks());
         return 1 + (vi.m_half_line_count) / 2;
       }),
       MMIO::ComplexWrite<u16>([](Core::System& system, u32, u16 val) {
@@ -327,6 +337,7 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   mmio->Register(
       base | VI_HORIZONTAL_BEAM_POSITION, MMIO::ComplexRead<u16>([](Core::System& system, u32) {
         auto& vi = system.GetVideoInterface();
+        vi.STVMaterializar(system.GetCoreTiming().GetTicks());
         u16 value = static_cast<u16>(
             1 + vi.m_h_timing_0.HLW *
                     (system.GetCoreTiming().GetTicks() - vi.m_ticks_last_line_start) /
@@ -347,12 +358,14 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    auto& vi = system.GetVideoInterface();
                    vi.m_interrupt_register[0].Hi = val;
                    vi.UpdateInterrupts();
+                   vi.STVReprogramar();
                  }));
   mmio->Register(base | VI_POSTRETRACE_HI, MMIO::DirectRead<u16>(&m_interrupt_register[1].Hi),
                  MMIO::ComplexWrite<u16>([](Core::System& system, u32, u16 val) {
                    auto& vi = system.GetVideoInterface();
                    vi.m_interrupt_register[1].Hi = val;
                    vi.UpdateInterrupts();
+                   vi.STVReprogramar();
                  }));
   mmio->Register(base | VI_DISPLAY_INTERRUPT_2_HI,
                  MMIO::DirectRead<u16>(&m_interrupt_register[2].Hi),
@@ -360,6 +373,7 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    auto& vi = system.GetVideoInterface();
                    vi.m_interrupt_register[2].Hi = val;
                    vi.UpdateInterrupts();
+                   vi.STVReprogramar();
                  }));
   mmio->Register(base | VI_DISPLAY_INTERRUPT_3_HI,
                  MMIO::DirectRead<u16>(&m_interrupt_register[3].Hi),
@@ -367,6 +381,7 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                    auto& vi = system.GetVideoInterface();
                    vi.m_interrupt_register[3].Hi = val;
                    vi.UpdateInterrupts();
+                   vi.STVReprogramar();
                  }));
 
   // Unknown anti-aliasing related MMIO register: puts a warning on log and
@@ -413,7 +428,9 @@ void VideoInterfaceManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                      vi.UpdateInterrupts();
                    }
 
+                   vi.STVMaterializar(system.GetCoreTiming().GetTicks());
                    vi.UpdateParameters();
+                   vi.STVReprogramar();
                  }));
 
   // Map 8 bit reads (not writes) to 16 bit reads.
@@ -902,6 +919,105 @@ void VideoInterfaceManager::EndField(FieldType field, u64 ticks)
 
 // Purpose: Send VI interrupt when triggered
 // Run when: When a frame is scanned (progressive/interlace)
+// STV_GC_VILAZO_x: el evento del VI se programaba cada media linea (~31.500 por segundo, ~1,2 % del hilo de CPU de
+// Wind Waker entre el evento y el Update) aunque casi ninguna haga algo. Con el ajuste, se programa directo para la
+// proxima media linea con trabajo: bordes de campo, primera/ultima del campo, sondeo del SI y las dos medias lineas
+// candidatas de cada interrupcion (la paridad depende de HCT, que se escribe sin aviso). Las del medio solo avanzaban
+// el contador: STVAvanzarA las suma al llegar el evento, y la posicion del haz se calcula al leerla (STVMaterializar,
+// con tope en la que va a procesar el evento). Escribir tiempos o lineas de interrupcion reprograma el evento.
+u32 VideoInterfaceManager::STVDistancia(u32 cuenta) const
+{
+  const u32 total = GetHalfLinesPerEvenField() + GetHalfLinesPerOddField();
+  if (!m_stv_vilazo || total == 0)
+    return 0;
+  u32 d = 256;
+  const auto ver = [&](u32 c) {
+    if (c < total)
+      d = std::min(d, (c + total - cuenta % total) % total);
+  };
+  ver(0);
+  ver(GetHalfLinesPerOddField());
+  ver(m_odd_field_first_hl);
+  ver(m_even_field_first_hl);
+  ver(m_odd_field_last_hl);
+  ver(m_even_field_last_hl);
+  ver(m_half_line_of_next_si_poll);
+  for (const UVIInterruptRegister& reg : m_interrupt_register)
+  {
+    if (reg.VCT == 0)
+      continue;
+    // La interrupcion se mira DESPUES de incrementar: la media linea b la levanta el Update de b - 1.
+    const u32 b = 2 * (reg.VCT - 1);
+    ver((b + total - 1) % total);
+    ver(b % total);
+  }
+  return d;
+}
+
+void VideoInterfaceManager::STVAvanzarA(u64 ticks)
+{
+  const u32 total = GetHalfLinesPerEvenField() + GetHalfLinesPerOddField();
+  const u64 tphl = GetTicksPerHalfLine();
+  if (total == 0 || tphl == 0)
+    return;
+  // El Update de la cuenta c corre cuando c termina: inicio(c) = ticks - tphl.
+  const u64 ref = m_ticks_last_line_start + ((m_half_line_count & 1) ? tphl : 0);
+  if (ticks <= ref)
+    return;
+  const u64 pasos = (ticks - ref + tphl / 2) / tphl;
+  if (pasos <= 1)
+    return;
+  const u32 c = static_cast<u32>((m_half_line_count + pasos - 1) % total);
+  const u64 inicio = ref + (pasos - 1) * tphl;
+  m_half_line_count = c;
+  m_ticks_last_line_start = (c & 1) ? inicio - tphl : inicio;
+}
+
+u32 VideoInterfaceManager::STVProgramarSiguiente()
+{
+  const u32 total = GetHalfLinesPerEvenField() + GetHalfLinesPerOddField();
+  const u32 d = STVDistancia(m_half_line_count);
+  m_stv_cuenta_evento = total ? (m_half_line_count + d) % total : UINT32_MAX;
+  return d + 1;
+}
+
+void VideoInterfaceManager::STVMaterializar(u64 ahora)
+{
+  const u32 total = GetHalfLinesPerEvenField() + GetHalfLinesPerOddField();
+  const u64 tphl = GetTicksPerHalfLine();
+  if (total == 0 || tphl == 0)
+    return;
+  const u64 ref = m_ticks_last_line_start + ((m_half_line_count & 1) ? tphl : 0);
+  if (ahora < ref + tphl)
+    return;
+  u64 pasos = (ahora - ref) / tphl;
+  if (m_stv_cuenta_evento != UINT32_MAX)
+    pasos = std::min<u64>(pasos, (m_stv_cuenta_evento + total - m_half_line_count % total) % total);
+  if (pasos == 0)
+    return;
+  const u32 c = static_cast<u32>((m_half_line_count + pasos) % total);
+  const u64 inicio = ref + pasos * tphl;
+  m_half_line_count = c;
+  m_ticks_last_line_start = (c & 1) ? inicio - tphl : inicio;
+}
+
+void VideoInterfaceManager::STVReprogramar()
+{
+  if (!m_stv_vilazo)
+    return;
+  const u32 total = GetHalfLinesPerEvenField() + GetHalfLinesPerOddField();
+  const u64 tphl = GetTicksPerHalfLine();
+  if (total == 0 || tphl == 0)
+    return;
+  const u64 ahora = m_system.GetCoreTiming().GetTicks();
+  STVMaterializar(ahora);
+  const u64 ref = m_ticks_last_line_start + ((m_half_line_count & 1) ? tphl : 0);
+  const u32 d = STVDistancia(m_half_line_count);
+  const u64 objetivo = ref + (u64{d} + 1) * tphl;
+  m_stv_cuenta_evento = (m_half_line_count + d) % total;
+  m_system.GetSystemTimers().STVReprogramarVI(objetivo > ahora ? static_cast<s64>(objetivo - ahora) : 0);
+}
+
 void VideoInterfaceManager::Update(u64 ticks)
 {
   constexpr u32 odd_field_begin = 0;
