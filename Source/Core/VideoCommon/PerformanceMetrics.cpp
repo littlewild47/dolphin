@@ -15,6 +15,7 @@
 #include "Core/Config/MainSettings.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
+#include "Core/HW/SystemTimers.h"
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -297,6 +298,30 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0);
       es0 = es;
       sl0 = sl;
+    }
+    // STV_GC_VILAZO_v1: debug.stv.gc.vilazo = 0|1 (el evento del VI solo en las medias lineas con trabajo). Con las
+    // metricas, una linea por segundo con los eventos del VI.
+    {
+      char vl[PROP_VALUE_MAX] = {};
+      static int stv_vl_prev = -1;
+      if (__system_property_get("debug.stv.gc.vilazo", vl) > 0 && (vl[0] == '0' || vl[0] == '1'))
+      {
+        const int n = vl[0] - '0';
+        if (n != stv_vl_prev)
+        {
+          stv_vl_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_VILAZO, n == 1);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "vi: lazo=%d", n);
+        }
+      }
+      static u64 ve0 = 0;
+      const u64 ve = SystemTimers::g_stv_vi_eventos.load(std::memory_order_relaxed);
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "vi: eventos=%llu/s lazo=%d",
+                            static_cast<unsigned long long>(ve - ve0),
+                            Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
+      ve0 = ve;
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')

@@ -66,6 +66,8 @@ const Info<bool> MAIN_STV_GQR{{System::Main, "Core", "STVGqrFijo"}, true};
 const Info<int> MAIN_STV_GP_UMBRAL{{System::Main, "Core", "STVGatherUmbral"}, 256};
 // STV_GC_SALTO_v1: ver CoreTiming::Idle.
 const Info<int> MAIN_STV_SALTO{{System::Main, "Core", "STVSaltoCuadros"}, 1};
+// STV_GC_VILAZO_v1: ver VideoInterface.cpp.
+const Info<bool> MAIN_STV_VILAZO{{System::Main, "Core", "STVViLazo"}, true};
 const Info<bool> MAIN_DSP_HLE{{System::Main, "Core", "DSPHLE"}, true};
 const Info<int> MAIN_MAX_FALLBACK{{System::Main, "Core", "MaxFallback"}, 100};
 const Info<int> MAIN_TIMING_VARIANCE{{System::Main, "Core", "TimingVariance"}, 40};

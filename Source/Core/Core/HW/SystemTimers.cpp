@@ -64,6 +64,8 @@ IPC_HLE_PERIOD: For the Wii Remote this is the call schedule:
 
 namespace SystemTimers
 {
+std::atomic<u64> g_stv_vi_eventos{0};
+
 // DSP/CPU timeslicing.
 void SystemTimersManager::DSPCallback(Core::System& system, u64 userdata, s64 cycles_late)
 {
@@ -120,9 +122,20 @@ void SystemTimersManager::VICallback(Core::System& system, u64 userdata, s64 cyc
 {
   auto& core_timing = system.GetCoreTiming();
   auto& vi = system.GetVideoInterface();
-  vi.Update(core_timing.GetTicks() - cycles_late);
-  core_timing.ScheduleEvent(vi.GetTicksPerHalfLine() - cycles_late,
+  const u64 t = core_timing.GetTicks() - cycles_late;
+  g_stv_vi_eventos.fetch_add(1, std::memory_order_relaxed);
+  // STV_GC_VILAZO_v1: las medias lineas sin nada que hacer se saltaron; se avanza el contador y despues el Update.
+  vi.STVAvanzarA(t);
+  vi.Update(t);
+  core_timing.ScheduleEvent(s64{vi.GetTicksPerHalfLine()} * vi.STVProgramarSiguiente() - cycles_late,
                             system.GetSystemTimers().m_event_type_vi);
+}
+
+void SystemTimersManager::STVReprogramarVI(s64 ciclos)
+{
+  auto& core_timing = m_system.GetCoreTiming();
+  core_timing.RemoveEvent(m_event_type_vi);
+  core_timing.ScheduleEvent(ciclos, m_event_type_vi);
 }
 
 void SystemTimersManager::DecrementerCallback(Core::System& system, u64 userdata, s64 cycles_late)
