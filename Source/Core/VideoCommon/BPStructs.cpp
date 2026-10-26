@@ -76,9 +76,11 @@ static void STVFinDeCuadro(u32 xfb_addr, bool saltado)
   {
     std::ranges::replace(s_stv_xfb_saltados, xfb_addr, 0u);
   }
+  // Solo con un atraso que el salto de la espera no alcanza a cerrar (en Wind Waker la espera sola lo deja al 100 %
+  // con ~20 ms de atraso; saltar dibujo ahi solo tiraba cuadros: 26,5 -> 19,5 FPS).
   g_stv_saltar_dibujo = !saltado && g_ActiveConfig.bVISkip &&
                         CoreTiming::g_stv_salto_modo.load(std::memory_order_relaxed) >= 2 &&
-                        CoreTiming::g_stv_atrasado.load(std::memory_order_relaxed);
+                        CoreTiming::g_stv_atraso_ms.load(std::memory_order_relaxed) >= 60;
 }
 
 static constexpr Common::EnumMap<float, GammaCorrection::Invalid2_2> s_gammaLUT = {1.0f, 1.7f, 2.2f,

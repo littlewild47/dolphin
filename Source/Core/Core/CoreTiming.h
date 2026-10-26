@@ -44,6 +44,7 @@ namespace CoreTiming
 extern std::atomic<u64> g_stv_esperas, g_stv_saltos;
 // STV_GC_SALTO_x: emulacion atrasada (> 20 ms, la senal de VISkip) y modo del salto, para el hilo de video.
 extern std::atomic<bool> g_stv_atrasado;
+extern std::atomic<int> g_stv_atraso_ms;  // cuanto va atrasada (0 si al dia)
 extern std::atomic<int> g_stv_salto_modo;
 
 // These really shouldn't be global, but jit64 accesses them directly

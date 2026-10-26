@@ -37,6 +37,7 @@ namespace CoreTiming
 {
 std::atomic<u64> g_stv_esperas{0}, g_stv_saltos{0};
 std::atomic<bool> g_stv_atrasado{false};
+std::atomic<int> g_stv_atraso_ms{0};
 std::atomic<int> g_stv_salto_modo{1};
 
 static constexpr int MAX_SLICE_LENGTH = 20000;
@@ -541,6 +542,12 @@ void CoreTimingManager::UpdateVISkip(TimePoint current_time, TimePoint target_ti
   const TimePoint vi_target = current_time - vi_fallback / 2;
   m_throttle_disable_vi_int = target_time < vi_target;
   g_stv_atrasado.store(m_throttle_disable_vi_int, std::memory_order_relaxed);
+  g_stv_atraso_ms.store(target_time < current_time ?
+                            static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                 current_time - target_time)
+                                                 .count()) :
+                            0,
+                        std::memory_order_relaxed);
 }
 
 bool CoreTimingManager::GetVISkip() const
