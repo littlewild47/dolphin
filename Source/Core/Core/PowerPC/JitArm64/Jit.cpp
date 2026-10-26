@@ -1344,8 +1344,14 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       const u32 prev_address = m_code_buffer[i - 1].address;
       bool gatherPipeIntCheck = js.fifoWriteAddresses.contains(prev_address);
 
+      // STV_GC_FIFORUT_x (tope de seguridad de FIFO3): al final de un bloque el gather pipe puede quedar con hasta
+      // umbral-1 bytes (Cleanup solo vacia sobre el umbral), y este contador arranca en 0 en el bloque siguiente; mas
+      // una escritura de hasta 8 bytes que no cuenta el compilador (camino lento o rutina) antes de vaciar. Con el
+      // umbral de 256 eso pasaba los 512 del bufer (m_gather_pipe). El chequeo dentro del bloque se adelanta lo justo:
+      // umbral-1 + (tope-1+8) + 8 < GATHER_PIPE_EXTRA_SIZE. Con 32 (Dolphin) no cambia nada.
+      const u32 stv_tope = std::min<u32>(m_stv_gp_umbral, GPFifo::GATHER_PIPE_EXTRA_SIZE - m_stv_gp_umbral - 24);
       if (jo.optimizeGatherPipe &&
-          (js.fifoBytesSinceCheck >= m_stv_gp_umbral || js.mustCheckFifo))  // STV_GC_FIFO3_v1
+          (js.fifoBytesSinceCheck >= stv_tope || js.mustCheckFifo))  // STV_GC_FIFO3_v1
       {
         js.fifoBytesSinceCheck = 0;
         js.mustCheckFifo = false;

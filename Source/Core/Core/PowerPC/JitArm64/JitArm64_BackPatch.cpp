@@ -16,6 +16,7 @@
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
 
+#include "Core/HW/GPFifo.h"
 #include "Core/PowerPC/Gekko.h"
 #include "Core/PowerPC/JitArm64/Jit_Util.h"
 #include "Core/PowerPC/JitArmCommon/BackPatch.h"
@@ -211,6 +212,51 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     if (slow_access_fixup)
       SetJumpTarget(*slow_access_fixup);
 
+    // STV_GC_FIFORUT_x: las rutinas de psq_st cuantizado (comunes a todos los bloques: no saben a que direccion
+    // escriben) llegan aca cuando la direccion no es RAM. Si es el FIFO de la GPU, cada escritura pagaba el guardado
+    // de 16 registros enteros y 30 vectoriales y WriteFromJit -> WriteToHardware -> MMIO -> GPFifo::Write (Simpsons
+    // Hit & Run: pares de u8/s8). Aca se escribe directo en el gather pipe (mismo intercambio de bytes que el acceso
+    // rapido) y solo si se llega al umbral se llama a GPFifo::STVCheckGatherPipe (vaciar + anotar la PC, como el
+    // camino lento). Temporales de las rutinas: X0 y X1 (X2 es la direccion, X30 la vuelta).
+    std::optional<FixupBranch> stv_rut_listo, stv_rut_listo2;
+    if (m_stv_fifo_rut && emitting_routine && (flags & BackPatchInfo::FLAG_STORE) &&
+        !(flags & BackPatchInfo::FLAG_ZERO_256) && jo.fastmem && !jo.memcheck && jo.optimizeGatherPipe &&
+        m_mmu.IsOptimizableGatherPipeWrite(0xCC008000))
+    {
+      MOVI2R(ARM64Reg::W1, 0xCC008000);
+      CMP(EncodeRegTo32(addr), ARM64Reg::W1);
+      FixupBranch no_es_fifo = B(CC_NEQ);
+      LDR(IndexType::Unsigned, ARM64Reg::X0, PPC_REG, PPCSTATE_OFF(gather_pipe_ptr));
+      if (flags & BackPatchInfo::FLAG_FLOAT)
+      {
+        ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::D0, EncodeRegToDouble(RS),
+                                            flags, true);
+        m_float_emit.STR(access_size, IndexType::Post, temp, ARM64Reg::X0, access_size >> 3);
+      }
+      else
+      {
+        ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::W1, RS, flags, true);
+        if (flags & BackPatchInfo::FLAG_SIZE_32)
+          STR(IndexType::Post, temp, ARM64Reg::X0, 4);
+        else if (flags & BackPatchInfo::FLAG_SIZE_16)
+          STRH(IndexType::Post, temp, ARM64Reg::X0, 2);
+        else
+          STRB(IndexType::Post, temp, ARM64Reg::X0, 1);
+      }
+      STR(IndexType::Unsigned, ARM64Reg::X0, PPC_REG, PPCSTATE_OFF(gather_pipe_ptr));
+      LDR(IndexType::Unsigned, ARM64Reg::X1, PPC_REG, PPCSTATE_OFF(gather_pipe_base_ptr));
+      SUB(ARM64Reg::X0, ARM64Reg::X0, ARM64Reg::X1);
+      CMP(ARM64Reg::X0, m_stv_gp_umbral);
+      stv_rut_listo = B(CC_LT);
+      ABI_PushRegisters(gprs_to_push);
+      m_float_emit.ABI_PushRegisters(fprs_to_push, ARM64Reg::X30);
+      ABI_CallFunction(&GPFifo::STVCheckGatherPipe, &m_system.GetGPFifo());
+      m_float_emit.ABI_PopRegisters(fprs_to_push, ARM64Reg::X30);
+      ABI_PopRegisters(gprs_to_push);
+      stv_rut_listo2 = B();
+      SetJumpTarget(no_es_fifo);
+    }
+
     const ARM64Reg temp_gpr = ARM64Reg::W1;
     const int temp_gpr_index = DecodeReg(temp_gpr);
     const ARM64Reg temp_fpr = fprs_to_push[0] ? ARM64Reg::INVALID_REG : ARM64Reg::Q0;
@@ -334,6 +380,11 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     }
 
     ABI_PopRegisters(gprs_to_push & gprs_to_push_early);
+
+    if (stv_rut_listo)
+      SetJumpTarget(*stv_rut_listo);
+    if (stv_rut_listo2)
+      SetJumpTarget(*stv_rut_listo2);
   }
 
   if (in_far_code)

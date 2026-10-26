@@ -73,6 +73,8 @@ extern const Info<bool> MAIN_STV_BLR_FIX;
 extern const Info<bool> MAIN_STV_FIFO_REG;
 // STV_GC_CERO_x: pasar un 0,0 de simple a doble por FCVT (exacto) en vez de la rutina bit a bit.
 extern const Info<bool> MAIN_STV_CERO;
+// STV_GC_FIFORUT_x: las rutinas de psq_st cuantizado escriben directo en el gather pipe si la direccion es la del FIFO.
+extern const Info<bool> MAIN_STV_FIFO_RUT;
 // STV_GC_FIFO3_v1: cuantos bytes se juntan en el gather pipe antes de vaciarlo (32 = Dolphin, hasta 256; el bufer mide
 // 512). Por encima de 32 las rafagas se avisan juntas al procesador de comandos y se vacian en cada CoreTiming::Advance,
 // antes de mtspr WPAR y al tocar el FIFO del CPU en el PI.
