@@ -22,6 +22,10 @@
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
+#ifdef STV_PGO_GEN
+extern "C" int __llvm_profile_write_file(void);
+extern "C" void __llvm_profile_reset_counters(void);
+#endif
 #endif
 
 PerformanceMetrics::PerformanceMetrics()
@@ -121,6 +125,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
   if (clock_time - stv_ultima >= std::chrono::seconds{1})
   {
     stv_ultima = clock_time;
+#ifdef STV_PGO_GEN
+    // STV_GC_PGO_x: el build instrumentado (-fprofile-generate) vuelca sus contadores cada 20 s: Android mata la app
+    // sin atexit y el volcado normal (al salir) no llega nunca.
+    {
+      static int stv_pgo_n = 0;
+      if (++stv_pgo_n % 20 == 0)
+      {
+        // Con %m el runtime SUMA lo volcado al archivo: sin reiniciar, cada volcado volvia a sumar lo acumulado.
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "pgo: volcado=%d", __llvm_profile_write_file());
+        __llvm_profile_reset_counters();
+      }
+    }
+#endif
     // Los contadores de la ventana se toman SIEMPRE (con las metricas apagadas tambien): si no, la primera linea
     // despues de prenderlas traia todo lo acumulado (f50=861 tras 60 s apagadas, medido en f237).
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
