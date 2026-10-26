@@ -607,6 +607,9 @@ void Arm64GPRCache::GetAllocationOrder()
     // STV_GC_JITGF_v1: con la valvula, W19-W24 son de los GPR fijos (pool 27 -> 21).
     if (m_stv_gf != 0 && reg >= ARM64Reg::W19 && reg <= ARM64Reg::W24)
       continue;
+    // STV_GC_JITLR_x: W25 es el LR fijo (pool 21 -> 20).
+    if (m_stv_gf != 0 && reg == STV_LR_HOST)
+      continue;
     m_host_registers.push_back(HostReg(reg));
   }
 }

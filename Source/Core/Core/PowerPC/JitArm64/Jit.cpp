@@ -415,12 +415,14 @@ void JitArm64::STVGfGuardar(bool nop_si_apagada)
     STP(IndexType::Signed, STVGfHost(0), STVGfHost(1), PPC_REG, PPCSTATE_OFF_GPR(0));
     STP(IndexType::Signed, STVGfHost(3), STVGfHost(4), PPC_REG, PPCSTATE_OFF_GPR(3));
     STP(IndexType::Signed, STVGfHost(30), STVGfHost(31), PPC_REG, PPCSTATE_OFF_GPR(30));
+    STR(IndexType::Unsigned, STV_LR_HOST, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));  // STV_GC_JITLR_x
   }
   else if (nop_si_apagada)
   {
     NOP();
     NOP();
     NOP();
+    NOP();  // STV_GC_JITLR_x
   }
 }
 
@@ -432,13 +434,38 @@ void JitArm64::STVGfCargar(bool nop_si_apagada)
     LDP(IndexType::Signed, STVGfHost(0), STVGfHost(1), PPC_REG, PPCSTATE_OFF_GPR(0));
     LDP(IndexType::Signed, STVGfHost(3), STVGfHost(4), PPC_REG, PPCSTATE_OFF_GPR(3));
     LDP(IndexType::Signed, STVGfHost(30), STVGfHost(31), PPC_REG, PPCSTATE_OFF_GPR(30));
+    LDR(IndexType::Unsigned, STV_LR_HOST, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));  // STV_GC_JITLR_x
   }
   else if (nop_si_apagada)
   {
     NOP();
     NOP();
     NOP();
+    NOP();  // STV_GC_JITLR_x
   }
+}
+
+// STV_GC_JITLR_x
+void JitArm64::STVLrEscribir(ARM64Reg src)
+{
+  if (STVGf() != 0)
+  {
+    MOV(STV_LR_HOST, src);
+    if (STVGf() == 2)
+      STR(IndexType::Unsigned, src, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+  }
+  else
+  {
+    STR(IndexType::Unsigned, src, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+  }
+}
+
+void JitArm64::STVLrLeer(ARM64Reg dst)
+{
+  if (STVGf() != 0)
+    MOV(dst, STV_LR_HOST);
+  else
+    LDR(IndexType::Unsigned, dst, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
 }
 
 // STV_GC_JITGF_v1: modo 2 (solo depuracion). Al entrar al bloque, con la escritura en ppcState de siempre activa,
@@ -457,6 +484,8 @@ void JitArm64::STVGfVerificar()
   LDP(IndexType::Signed, ARM64Reg::W0, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_GPR(30));
   CCMP(STVGfHost(30), ARM64Reg::W0, 0, CC_EQ);
   CCMP(STVGfHost(31), ARM64Reg::W1, 0, CC_EQ);
+  LDR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));  // STV_GC_JITLR_x
+  CCMP(STV_LR_HOST, ARM64Reg::W0, 0, CC_EQ);
   FixupBranch iguales = B(CC_EQ);
   BRK(0x5A);
   SetJumpTarget(iguales);

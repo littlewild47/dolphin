@@ -81,6 +81,10 @@ public:
   // los callee-saved sobreviven a la llamada por ABI. Los puntos de vigilancia si leen gpr: con jo.memcheck la
   // valvula se fuerza a 0.
   void STVGfGuardar(bool nop_si_apagada = false);
+  // STV_GC_JITLR_x: escritura/lectura del LR del PowerPC (W25 con la valvula; ppcState.spr[LR] sin ella; en modo 2
+  // las dos, para que STVGfVerificar compare).
+  void STVLrEscribir(Arm64Gen::ARM64Reg src);
+  void STVLrLeer(Arm64Gen::ARM64Reg dst);
   void STVGfCargar(bool nop_si_apagada = false);
   // STV_GC_JITGF_v1: modo 2, al entrar a cada bloque: cada fijo contra su copia en ppcState; si difieren, BRK #0x5A.
   void STVGfVerificar();

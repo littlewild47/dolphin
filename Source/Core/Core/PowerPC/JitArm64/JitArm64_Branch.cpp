@@ -116,7 +116,7 @@ void JitArm64::bx(UGeckoInstruction inst)
   {
     WA = gpr.GetScopedReg();
     MOVI2R(WA, js.compilerPC + 4);
-    STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+    STVLrEscribir(WA);  // STV_GC_JITLR_x
   }
 
   if (!js.isLastInstruction)
@@ -211,7 +211,7 @@ void JitArm64::bcx(UGeckoInstruction inst)
     if (inst.LK)
     {
       MOVI2R(WA, js.compilerPC + 4);
-      STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+      STVLrEscribir(WA);  // STV_GC_JITLR_x
     }
 
     gpr.Flush(FlushMode::MaintainState, WB);
@@ -289,7 +289,7 @@ void JitArm64::bcctrx(UGeckoInstruction inst)
   {
     WB = gpr.GetScopedReg();
     MOVI2R(WB, js.compilerPC + 4);
-    STR(IndexType::Unsigned, WB, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+    STVLrEscribir(WB);  // STV_GC_JITLR_x
   }
 
   auto WA = gpr.GetScopedReg();
@@ -342,13 +342,19 @@ void JitArm64::bclrx(UGeckoInstruction inst)
           JumpIfCRFieldBit(inst.BI >> 2, 3 - (inst.BI & 3), !(inst.BO_2 & BO_BRANCH_IF_TRUE));
     }
 
-    LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
-    AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
+    // STV_GC_JITLR_x: con el LR fijo, el AND lee W25 directo (sin la carga).
+    if (STVGf() != 0)
+      AND(WA, STV_LR_HOST, LogicalImm(~0x3, GPRSize::B32));
+    else
+    {
+      LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+      AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
+    }
 
     if (inst.LK)
     {
       MOVI2R(WB, js.compilerPC + 4);
-      STR(IndexType::Unsigned, WB, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+      STVLrEscribir(WB);  // STV_GC_JITLR_x
     }
 
     gpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, WB);

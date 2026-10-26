@@ -507,7 +507,10 @@ void JitArm64::mfspr(UGeckoInstruction inst)
   default:
     gpr.BindToRegister(d, false);
     ARM64Reg RD = gpr.R(d);
-    LDR(IndexType::Unsigned, RD, PPC_REG, PPCSTATE_OFF_SPR(iIndex));
+    if (iIndex == SPR_LR)
+      STVLrLeer(RD);  // STV_GC_JITLR_x
+    else
+      LDR(IndexType::Unsigned, RD, PPC_REG, PPCSTATE_OFF_SPR(iIndex));
     break;
   }
 }
@@ -570,7 +573,10 @@ void JitArm64::mtspr(UGeckoInstruction inst)
 
   // OK, this is easy.
   ARM64Reg RD = gpr.IsImm(inst.RD, 0) ? ARM64Reg::WZR : gpr.R(inst.RD);
-  STR(IndexType::Unsigned, RD, PPC_REG, PPCSTATE_OFF_SPR(iIndex));
+  if (iIndex == SPR_LR)
+    STVLrEscribir(RD);  // STV_GC_JITLR_x
+  else
+    STR(IndexType::Unsigned, RD, PPC_REG, PPCSTATE_OFF_SPR(iIndex));
 }
 
 void JitArm64::crXXX(UGeckoInstruction inst)

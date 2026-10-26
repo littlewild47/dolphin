@@ -36,6 +36,10 @@ constexpr Arm64Gen::ARM64Reg DOWNCOUNT_REG = Arm64Gen::ARM64Reg::W27;
 // puntos de sincronizacion (control en C++: despachador, interprete, HLE, puntos de parada). Con la valvula
 // prendida, W19-W24 salen del orden de asignacion (pool 27 -> 21). Callee-saved: el C++ los preserva.
 // Pares contiguos en ppcState (para STP/LDP): {r0,r1} = {W20,W23}, {r3,r4} = {W19,W22}, {r30,r31} = {W24,W21}.
+// STV_GC_JITLR_x: con la misma valvula, el LR del PowerPC vive fijo en W25 (el ultimo callee-saved libre): bl/bclr/
+// mflr/mtlr dejan de pasar por ppcState.spr[LR]. Se guarda y se carga en los mismos puntos de sincronizacion que los
+// seis GPR fijos (STVGfGuardar/STVGfCargar).
+constexpr Arm64Gen::ARM64Reg STV_LR_HOST = Arm64Gen::ARM64Reg::W25;
 constexpr u32 STV_GF_MASCARA = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) | (1u << 30) | (1u << 31);
 constexpr Arm64Gen::ARM64Reg STVGfHost(size_t preg)
 {
