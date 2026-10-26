@@ -128,6 +128,13 @@ void GPFifoManager::UpdateGatherPipe()
 // STV_GC_FIFO2_x: umbral de vaciado tambien en los caminos de C++ (escrituras lentas al FIFO); lo fija la valvula.
 u32 g_stv_gp_umbral_c = GATHER_PIPE_SIZE;
 
+// STV_GC_FIFO3_x: solo con el umbral por encima de 32 (si no, no hay nada retenido y el camino es el de Dolphin).
+void GPFifoManager::STVVaciarSiRetiene()
+{
+  if (g_stv_gp_umbral_c > GATHER_PIPE_SIZE)
+    STVVaciarRafagas();
+}
+
 // STV_GC_FIFO3_x: vacia las rafagas completas (umbral fijo de 32, el de Dolphin). La llama CoreTiming::Advance.
 void GPFifoManager::STVVaciarRafagas()
 {

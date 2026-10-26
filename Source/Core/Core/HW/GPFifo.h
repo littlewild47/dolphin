@@ -36,7 +36,8 @@ public:
   void ResetGatherPipe();
   void UpdateGatherPipe();
   void STVAnotar();  // STV_GC_FIFOREG_x
-  void STVVaciarRafagas();  // STV_GC_FIFO3_x
+  void STVVaciarRafagas();    // STV_GC_FIFO3_x
+  void STVVaciarSiRetiene();  // STV_GC_FIFO3_x
   void CheckGatherPipe();
   void FastCheckGatherPipe();
 
