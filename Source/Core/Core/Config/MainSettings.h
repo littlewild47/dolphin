@@ -71,6 +71,8 @@ extern const Info<bool> MAIN_STV_BLR_FIX;
 // STV_GC_FIFOREG_v1: una escritura que ya se vio ir al FIFO de la GPU (0xCC008000) con la direccion en un registro
 // se compila con un camino rapido al gather pipe, como las de direccion constante.
 extern const Info<bool> MAIN_STV_FIFO_REG;
+// STV_GC_CERO_v1: pasar un 0,0 de simple a doble por FCVT (exacto) en vez de la rutina bit a bit.
+extern const Info<bool> MAIN_STV_CERO;
 // STV_GC_FIFO3_v1: cuantos bytes se juntan en el gather pipe antes de vaciarlo (32 = Dolphin, hasta 256; el bufer mide
 // 512). Por encima de 32 las rafagas se avisan juntas al procesador de comandos y se vacian en cada CoreTiming::Advance,
 // antes de mtspr WPAR y al tocar el FIFO del CPU en el PI.
