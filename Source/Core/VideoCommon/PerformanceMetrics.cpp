@@ -11,6 +11,7 @@
 #include "Common/HookableEvent.h"
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Core.h"
+#include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/CoreTiming.h"
@@ -287,16 +288,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
       static u64 es0 = 0, sl0 = 0;
+      static u32 di0 = 0;
+      const u32 di = g_stv_dibujos_saltados;
       const u64 es = CoreTiming::g_stv_esperas.load(std::memory_order_relaxed);
       const u64 sl = CoreTiming::g_stv_saltos.load(std::memory_order_relaxed);
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
-        __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d",
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: esperas=%llu/s saltos=%llu/s cuadros_sin_dibujar=%u/s modo=%d visk=%d",
                             static_cast<unsigned long long>(es - es0),
-                            static_cast<unsigned long long>(sl - sl0),
+                            static_cast<unsigned long long>(sl - sl0), di - di0,
                             Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0);
       es0 = es;
       sl0 = sl;
+      di0 = di;
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')

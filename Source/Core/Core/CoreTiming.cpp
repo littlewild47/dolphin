@@ -36,6 +36,8 @@
 namespace CoreTiming
 {
 std::atomic<u64> g_stv_esperas{0}, g_stv_saltos{0};
+std::atomic<bool> g_stv_atrasado{false};
+std::atomic<int> g_stv_salto_modo{1};
 
 static constexpr int MAX_SLICE_LENGTH = 20000;
 
@@ -146,6 +148,7 @@ void CoreTimingManager::RefreshConfig()
   m_config_oc_inv_factor = 1.0f / m_config_oc_factor;
   m_config_sync_on_skip_idle = Config::Get(Config::MAIN_SYNC_ON_SKIP_IDLE);
   m_stv_salto = Config::Get(Config::MAIN_STV_SALTO);
+  g_stv_salto_modo.store(m_stv_salto, std::memory_order_relaxed);
   m_config_rush_frame_presentation = Config::Get(Config::MAIN_RUSH_FRAME_PRESENTATION);
 
   // We don't want to skip so much throttling that the audio buffer overfills.
@@ -537,6 +540,7 @@ void CoreTimingManager::UpdateVISkip(TimePoint current_time, TimePoint target_ti
   // It doesn't matter what amount of lag we skip VI at, as long as it's constant.
   const TimePoint vi_target = current_time - vi_fallback / 2;
   m_throttle_disable_vi_int = target_time < vi_target;
+  g_stv_atrasado.store(m_throttle_disable_vi_int, std::memory_order_relaxed);
 }
 
 bool CoreTimingManager::GetVISkip() const

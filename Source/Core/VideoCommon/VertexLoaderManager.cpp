@@ -440,8 +440,10 @@ int RunVertices(int vtx_attr_group, OpcodeDecoder::Primitive primitive, int coun
     // if cull mode is CULL_ALL, tell VertexManager to skip triangles and quads.
     // They still need to go through vertex loading, because we need to calculate a zfreeze
     // reference slope.
+    // STV_GC_SALTO_x: en un cuadro saltado se descarta todo, tambien lineas y puntos.
     const bool cullall = (bpmem.genMode.cull_mode == CullMode::All &&
-                          primitive < OpcodeDecoder::Primitive::GX_DRAW_LINES);
+                          primitive < OpcodeDecoder::Primitive::GX_DRAW_LINES) ||
+                         g_stv_saltar_dibujo;
 
     const int stride = loader->m_native_vtx_decl.stride;
     do

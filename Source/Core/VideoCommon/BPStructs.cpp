@@ -4,6 +4,7 @@
 #include "VideoCommon/BPStructs.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -13,6 +14,7 @@
 #include "Common/EnumMap.h"
 #include "Common/Logging/Log.h"
 
+#include "Core/CoreTiming.h"
 #include "Core/DolphinAnalytics.h"
 #include "Core/FifoPlayer/FifoPlayer.h"
 #include "Core/FifoPlayer/FifoRecorder.h"
@@ -35,6 +37,7 @@
 #include "VideoCommon/TMEM.h"
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/TextureDecoder.h"
+#include "VideoCommon/VertexManagerBase.h"
 #include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
@@ -42,6 +45,41 @@
 #include "VideoCommon/XFStateManager.h"
 
 using namespace BPFunctions;
+
+// STV_GC_SALTO_x (modo 2, salto de dibujo como el de PPSSPP): con el interruptor VISkip y la emulacion atrasada, en
+// cada copia al XFB (fin de cuadro) se decide si el cuadro SIGUIENTE se dibuja. Uno saltado no dibuja nada (como
+// CULL_ALL), no hace sus copias del EFB (las texturas y la RAM quedan con las del cuadro anterior) ni su copia al XFB, y
+// la pantalla repite el ultimo cuadro: su direccion de XFB queda marcada hasta que una copia buena la vuelva a escribir.
+// Nunca dos seguidos. Ahorra el trabajo del hilo de video y de la GPU; la logica del juego corre igual (si el limite es
+// el hilo de CPU, el juego sigue lento, como en PPSSPP).
+bool g_stv_saltar_dibujo = false;
+u32 g_stv_dibujos_saltados = 0;
+static std::array<u32, 4> s_stv_xfb_saltados{};
+
+bool STVXfbSaltado(u32 xfb_addr)
+{
+  return xfb_addr != 0 && std::ranges::find(s_stv_xfb_saltados, xfb_addr) != s_stv_xfb_saltados.end();
+}
+
+static void STVFinDeCuadro(u32 xfb_addr, bool saltado)
+{
+  if (saltado)
+  {
+    if (!STVXfbSaltado(xfb_addr))
+    {
+      std::ranges::rotate(s_stv_xfb_saltados, s_stv_xfb_saltados.end() - 1);
+      s_stv_xfb_saltados[0] = xfb_addr;
+    }
+    ++g_stv_dibujos_saltados;
+  }
+  else
+  {
+    std::ranges::replace(s_stv_xfb_saltados, xfb_addr, 0u);
+  }
+  g_stv_saltar_dibujo = !saltado && g_ActiveConfig.bVISkip &&
+                        CoreTiming::g_stv_salto_modo.load(std::memory_order_relaxed) >= 2 &&
+                        CoreTiming::g_stv_atrasado.load(std::memory_order_relaxed);
+}
 
 static constexpr Common::EnumMap<float, GammaCorrection::Invalid2_2> s_gammaLUT = {1.0f, 1.7f, 2.2f,
                                                                                    2.2f};
@@ -298,7 +336,18 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     const u32 copy_width = srcRect.GetWidth();
     const u32 copy_height = srcRect.GetHeight();
 
-    if (destStride != 0)
+    if (destStride != 0 && g_stv_saltar_dibujo)
+    {
+      // STV_GC_SALTO_x: cuadro saltado: ni la copia del EFB ni la del XFB (el borrado de abajo, si).
+      if (PE_copy.copy_to_xfb == 1)
+      {
+        g_bounding_box->Disable(pixel_shader_manager);
+        auto& system = Core::System::GetInstance();
+        system.GetVideoEvents().after_frame_event.Trigger(system);
+        STVFinDeCuadro(destAddr, true);
+      }
+    }
+    else if (destStride != 0)
     {
       // Check if we are to copy from the EFB or draw to the XFB
       if (PE_copy.copy_to_xfb == 0)
@@ -351,6 +400,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
         // memory so they form a single completed XFB. See
         // https://dolphin-emu.org/blog/2017/11/19/hybridxfb/ for examples and more detail.
         system.GetVideoEvents().after_frame_event.Trigger(system);
+        STVFinDeCuadro(destAddr, false);
 
         // Note: Theoretically, in the future we could track the VI configuration and try to detect
         //       when an XFB is the last XFB copy of a frame. Not only would we get a clean "end of

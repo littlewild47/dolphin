@@ -47,6 +47,12 @@ namespace OpcodeDecoder
 enum class Primitive : u8;
 }
 
+// STV_GC_SALTO_x (modo 2): el cuadro en curso no se dibuja (decidido en la copia al XFB anterior; ver BPStructs.cpp).
+// Solo los usa el hilo de video.
+extern bool g_stv_saltar_dibujo;
+extern u32 g_stv_dibujos_saltados;
+bool STVXfbSaltado(u32 xfb_addr);
+
 class VertexManagerBase
 {
 private:

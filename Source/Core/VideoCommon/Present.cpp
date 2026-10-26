@@ -168,6 +168,10 @@ bool Presenter::FetchXFB(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_heigh
 void Presenter::ViSwap(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height, u64 ticks,
                        TimePoint presentation_time)
 {
+  // STV_GC_SALTO_x: el XFB de un cuadro saltado no se copio: se repite el ultimo cuadro presentado.
+  if (STVXfbSaltado(xfb_addr))
+    return;
+
   bool is_duplicate = FetchXFB(xfb_addr, fb_width, fb_stride, fb_height, ticks);
 
   PresentInfo present_info{

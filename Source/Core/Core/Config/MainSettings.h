@@ -84,7 +84,8 @@ extern const Info<int> MAIN_STV_GP_UMBRAL;
 // STV_GC_SALTO_x: salto de cuadros adaptativo, prendido por el interruptor "VBI Skip" de Dolphin ([Video_Hacks]
 // VISkip), que en esta version ya no salta interrupciones de VI. Con la emulacion atrasada mas de 20 ms, el hilo de CPU
 // no espera al de video al saltar un lazo ocioso (el juego sigue a su ritmo real y se pierden cuadros); al dia, espera
-// como siempre. 0 = el interruptor no hace nada (valvula de A/B), 1 = salto.
+// como siempre. 0 = el interruptor no hace nada (valvula de A/B), 1 = salto de la espera, 2 = ademas el hilo de video
+// no dibuja uno de cada dos cuadros mientras dure el atraso (como el salto de cuadros de PPSSPP; ver BPStructs.cpp).
 extern const Info<int> MAIN_STV_SALTO;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
