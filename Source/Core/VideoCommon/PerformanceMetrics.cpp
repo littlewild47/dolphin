@@ -13,6 +13,7 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+extern u32 g_stv_kick;  // STV_GC_KICK_x (VertexManagerBase.cpp)
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -181,6 +182,18 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           Config::SetCurrent(Config::MAIN_STV_BLR_FIX, n == 1);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: blrfix=%d", n);
         }
+      }
+    }
+    // STV_GC_KICK_x (EXPERIMENTO): debug.stv.gc.kick = N dibujos entre envios del bufer de comandos (0 = Dolphin).
+    {
+      char kk[PROP_VALUE_MAX] = {};
+      static int stv_kk_prev = -1;
+      const int n = __system_property_get("debug.stv.gc.kick", kk) > 0 ? atoi(kk) : 0;
+      if (n != stv_kk_prev && n >= 0 && n <= 5000)
+      {
+        stv_kk_prev = n;
+        g_stv_kick = static_cast<u32>(n);
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "video: kick=%d", n);
       }
     }
     char v[PROP_VALUE_MAX] = {};

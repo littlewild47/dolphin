@@ -933,9 +933,22 @@ void VertexManagerBase::OnConfigChange()
   m_index_generator.Init();
 }
 
+// STV_GC_KICK_x (EXPERIMENTO): enviar el bufer de comandos cada N dibujos aunque el cuadro anterior no haya leido el
+// EFB, para que la GPU ejecute durante el cuadro y en DrawDone (copias del EFB a la RAM, aviso al juego) quede poco.
+// La lee PerformanceMetrics de debug.stv.gc.kick (0 = como Dolphin).
+u32 g_stv_kick = 0;
+
 void VertexManagerBase::OnDraw()
 {
   m_draw_counter++;
+
+  if (g_stv_kick != 0 && m_allow_background_execution && (m_draw_counter % g_stv_kick) == 0)
+  {
+    g_gfx->Flush();
+    m_unflushed_efb_copy = false;
+    m_last_efb_copy_draw_counter = m_draw_counter;
+    return;
+  }
 
   // If the last efb copy was too close to the one before it, don't forget about it until the next
   // efb copy happens (which might not be for a long time)
