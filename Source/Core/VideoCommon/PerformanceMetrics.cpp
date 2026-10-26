@@ -23,6 +23,7 @@
 #include <sys/system_properties.h>
 #ifdef STV_PGO_GEN
 extern "C" int __llvm_profile_write_file(void);
+extern "C" void __llvm_profile_reset_counters(void);
 #endif
 #endif
 
@@ -128,7 +129,11 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     {
       static int stv_pgo_n = 0;
       if (++stv_pgo_n % 20 == 0)
+      {
+        // Con %m el runtime SUMA lo volcado al archivo: sin reiniciar, cada volcado volvia a sumar lo acumulado.
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "pgo: volcado=%d", __llvm_profile_write_file());
+        __llvm_profile_reset_counters();
+      }
     }
 #endif
     // Los contadores de la ventana se toman SIEMPRE (con las metricas apagadas tambien): si no, la primera linea
