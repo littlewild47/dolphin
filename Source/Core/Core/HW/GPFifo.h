@@ -20,6 +20,8 @@ constexpr u32 GATHER_PIPE_PHYSICAL_ADDRESS = 0x0C008000;
 
 constexpr u32 GATHER_PIPE_SIZE = 32;
 constexpr u32 GATHER_PIPE_EXTRA_SIZE = GATHER_PIPE_SIZE * 16;
+extern u64 g_stv_vaciados, g_stv_rafagas;  // STV_GC_FIFO2_x (exploracion)
+extern u32 g_stv_gp_umbral_c;              // STV_GC_FIFO2_x
 
 class GPFifoManager final
 {
@@ -34,6 +36,7 @@ public:
   void ResetGatherPipe();
   void UpdateGatherPipe();
   void STVAnotar();  // STV_GC_FIFOREG_x
+  void STVVaciarRafagas();  // STV_GC_FIFO3_x
   void CheckGatherPipe();
   void FastCheckGatherPipe();
 

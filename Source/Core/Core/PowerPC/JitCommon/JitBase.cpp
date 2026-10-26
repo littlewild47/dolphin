@@ -128,6 +128,9 @@ bool JitBase::DoesConfigNeedRefresh() const
   // STV_GC_JITGF_v1: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
   if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
     return true;
+  // STV_GC_FIFO2_x: idem para el umbral del gather pipe.
+  if (m_stv_gp_pedido != Config::Get(Config::MAIN_STV_GP_UMBRAL))
+    return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
     return this->*pair.first != Config::Get(*pair.second);
   });
@@ -165,6 +168,9 @@ void JitBase::RefreshConfig()
   // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada
   // sincronizan a mano (DoJit) y el perfilado de bloques (jitdump p) prende la depuracion.
   m_stv_gf_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS);
+  // STV_GC_FIFO2_x: umbral acotado a 32..256 en multiplos de 32 (el bufer del gather pipe mide 512).
+  m_stv_gp_pedido = Config::Get(Config::MAIN_STV_GP_UMBRAL);
+  m_stv_gp_umbral = (m_stv_gp_pedido >= 32 && m_stv_gp_pedido <= 256) ? (m_stv_gp_pedido & ~31) : 32;
   {
     const int pedido = (m_stv_gf_pedido >= 0 && m_stv_gf_pedido <= 2) ? m_stv_gf_pedido : 0;
     const int efectivo = jo.memcheck ? 0 : pedido;

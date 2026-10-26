@@ -71,6 +71,9 @@ extern const Info<bool> MAIN_STV_BLR_FIX;
 // STV_GC_FIFOREG_x: una escritura que ya se vio ir al FIFO de la GPU (0xCC008000) con la direccion en un registro
 // se compila con un camino rapido al gather pipe, como las de direccion constante.
 extern const Info<bool> MAIN_STV_FIFO_REG;
+// STV_GC_FIFO2_x: cada cuantos bytes escritos al gather pipe el JIT ARM64 compila una llamada a FastCheckGatherPipe
+// (32, 64, 128 o 256; el bufer mide 512).
+extern const Info<int> MAIN_STV_GP_UMBRAL;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;

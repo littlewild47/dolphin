@@ -13,6 +13,7 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/HW/GPFifo.h"
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -51,6 +52,7 @@ void PerformanceMetrics::Reset()
 namespace CommandProcessor
 {
 extern bool g_stv_fifo_rapido;  // STV_GC_FIFO_v1 (CommandProcessor.cpp)
+extern bool g_stv_fifo_lote;    // STV_GC_FIFO2_x
 }
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
@@ -197,6 +199,35 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: fiforeg=%d", n);
         }
       }
+    }
+    // STV_GC_FIFO2_x (EXPLORACION): debug.stv.gc.gpumbral = 32|64|128|256 (recompila) y debug.stv.gc.gplote = 0|1.
+    {
+      char gu[PROP_VALUE_MAX] = {};
+      static int stv_gu_prev = -1;
+      if (__system_property_get("debug.stv.gc.gpumbral", gu) > 0)
+      {
+        const int n = atoi(gu);
+        if (n != stv_gu_prev && n >= 32 && n <= 256)
+        {
+          stv_gu_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_GP_UMBRAL, n);
+          GPFifo::g_stv_gp_umbral_c = static_cast<u32>(n & ~31);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo: umbral=%d", n);
+        }
+      }
+      char gl[PROP_VALUE_MAX] = {};
+      const bool lote = __system_property_get("debug.stv.gc.gplote", gl) > 0 && gl[0] == '1';
+      if (lote != CommandProcessor::g_stv_fifo_lote)
+      {
+        CommandProcessor::g_stv_fifo_lote = lote;
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo: lote=%d", lote ? 1 : 0);
+      }
+      static u64 va0 = 0, ra0 = 0;
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "fifo: vaciados=%llu/s rafagas=%llu/s",
+                          static_cast<unsigned long long>(GPFifo::g_stv_vaciados - va0),
+                          static_cast<unsigned long long>(GPFifo::g_stv_rafagas - ra0));
+      va0 = GPFifo::g_stv_vaciados;
+      ra0 = GPFifo::g_stv_rafagas;
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
