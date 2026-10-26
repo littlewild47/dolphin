@@ -81,6 +81,11 @@ extern const Info<bool> MAIN_STV_GQR;
 // 512). Por encima de 32 las rafagas se avisan juntas al procesador de comandos y se vacian en cada CoreTiming::Advance,
 // antes de mtspr WPAR y al tocar el FIFO del CPU en el PI.
 extern const Info<int> MAIN_STV_GP_UMBRAL;
+// STV_GC_SALTO_v1: salto de cuadros adaptativo, prendido por el interruptor "VBI Skip" de Dolphin ([Video_Hacks]
+// VISkip), que en esta version ya no salta interrupciones de VI. Con la emulacion atrasada mas de 20 ms, el hilo de CPU
+// no espera al de video al saltar un lazo ocioso (el juego sigue a su ritmo real y se pierden cuadros); al dia, espera
+// como siempre. 0 = el interruptor no hace nada (valvula de A/B), 1 = salto.
+extern const Info<int> MAIN_STV_SALTO;
 // Should really be in the DSP section, but we're kind of stuck with bad decisions made in the past.
 extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;
