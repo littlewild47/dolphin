@@ -75,6 +75,8 @@ extern const Info<bool> MAIN_STV_FIFO_REG;
 extern const Info<bool> MAIN_STV_CERO;
 // STV_GC_FIFORUT_x: las rutinas de psq_st cuantizado escriben directo en el gather pipe si la direccion es la del FIFO.
 extern const Info<bool> MAIN_STV_FIFO_RUT;
+// STV_GC_GQR_x: un GQR que el bloque usa y no cambia se fija al compilar (con guardia al entrar), como en Jit64.
+extern const Info<bool> MAIN_STV_GQR;
 // STV_GC_FIFO3_v1: cuantos bytes se juntan en el gather pipe antes de vaciarlo (32 = Dolphin, hasta 256; el bufer mide
 // 512). Por encima de 32 las rafagas se avisan juntas al procesador de comandos y se vacian en cada CoreTiming::Advance,
 // antes de mtspr WPAR y al tocar el FIFO del CPU en el PI.

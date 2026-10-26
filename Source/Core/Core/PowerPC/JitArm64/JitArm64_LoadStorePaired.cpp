@@ -98,6 +98,71 @@ void JitArm64::psq_lXX(UGeckoInstruction inst)
     EmitBackpatchRoutine(flags, MemAccessMode::Auto, VS, EncodeRegTo64(addr_reg), gprs_in_use,
                          fprs_in_use);
   }
+  else if (js.constantGqrValid[i] && ((js.constantGqr[i] >> 16) & 7) != 1 &&
+           ((js.constantGqr[i] >> 16) & 7) != 2 && ((js.constantGqr[i] >> 16) & 7) != 3)
+  {
+    // STV_GC_GQR_x: GQR constante en el bloque (guardia al entrar, ver DoJit). La misma secuencia que la rutina
+    // (JitAsm.cpp, GenerateQuantizedLoads) pero en linea, con fastmem del bloque (fallo -> camino lento backpatcheado)
+    // y la escala como constante: sin la tabla de rutinas, sin BLR y sin el chequeo de direccion de la rutina.
+    const u32 gqr_alto = js.constantGqr[i] >> 16;
+    const u32 tipo = gqr_alto & 7;
+    const u32 escala = (gqr_alto >> 8) & 0x3F;
+
+    BitSet32 gprs_in_use = gpr.GetCallerSavedUsed();
+    BitSet32 fprs_in_use = fpr.GetCallerSavedUsed();
+    if (!update || early_update)
+      gprs_in_use[DecodeReg(ARM64Reg::W1)] = false;
+    gprs_in_use[DecodeReg(ARM64Reg::W0)] = false;
+    gprs_in_use[DecodeReg(ARM64Reg::W2)] = false;
+    gprs_in_use[DecodeReg(ARM64Reg::W3)] = false;
+    fprs_in_use[DecodeReg(ARM64Reg::Q0)] = false;
+    fprs_in_use[DecodeReg(ARM64Reg::Q1)] = false;
+    fprs_in_use[DecodeReg(VS)] = false;
+
+    u32 flags = BackPatchInfo::FLAG_LOAD | BackPatchInfo::FLAG_FLOAT;
+    if (!w)
+      flags |= BackPatchInfo::FLAG_PAIR;
+    if (tipo == 0)
+      flags |= BackPatchInfo::FLAG_SIZE_32;
+    else if (tipo == 4 || tipo == 6)
+      flags |= BackPatchInfo::FLAG_SIZE_8;
+    else
+      flags |= BackPatchInfo::FLAG_SIZE_16;
+
+    EmitBackpatchRoutine(flags, MemAccessMode::Auto, ARM64Reg::D0, EncodeRegTo64(addr_reg),
+                         gprs_in_use, fprs_in_use);
+
+    if (tipo != 0)
+    {
+      const bool con_signo = tipo == 6 || tipo == 7;
+      if (tipo == 4 || tipo == 6)
+      {
+        if (con_signo)
+          m_float_emit.SXTL(8, ARM64Reg::D0, ARM64Reg::D0);
+        else
+          m_float_emit.UXTL(8, ARM64Reg::D0, ARM64Reg::D0);
+      }
+      if (con_signo)
+      {
+        m_float_emit.SXTL(16, ARM64Reg::D0, ARM64Reg::D0);
+        m_float_emit.SCVTF(32, ARM64Reg::D0, ARM64Reg::D0);
+      }
+      else
+      {
+        m_float_emit.UXTL(16, ARM64Reg::D0, ARM64Reg::D0);
+        m_float_emit.UCVTF(32, ARM64Reg::D0, ARM64Reg::D0);
+      }
+      if (escala != 0)
+      {
+        const s32 load_offset = MOVPage2R(ARM64Reg::X0, &m_dequantizeTableS);
+        m_float_emit.LDR(32, IndexType::Unsigned, ARM64Reg::D1, ARM64Reg::X0,
+                         load_offset + static_cast<s32>(escala * 8));
+        m_float_emit.FMUL(32, ARM64Reg::D0, ARM64Reg::D0, ARM64Reg::D1, 0);
+      }
+    }
+
+    m_float_emit.ORR(EncodeRegToDouble(VS), ARM64Reg::D0, ARM64Reg::D0);
+  }
   else
   {
     LDR(IndexType::Unsigned, scale_reg, PPC_REG, PPCSTATE_OFF_SPR(SPR_GQR0 + i));

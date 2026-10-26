@@ -1266,6 +1266,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.isLastInstruction = false;
   js.firstFPInstructionFound = false;
   js.assumeNoPairedQuantize = false;
+  js.constantGqrValid = BitSet8();  // STV_GC_GQR_x
   js.blockStart = em_address;
   js.fifoBytesSinceCheck = 0;
   js.mustCheckFifo = false;
@@ -1304,6 +1305,45 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       SwitchToNearCode();
       SetJumpTarget(no_fail);
       js.assumeNoPairedQuantize = true;
+    }
+  }
+
+  // STV_GC_GQR_x: los GQR que el bloque usa y no modifica se toman como constantes (el valor de ahora) con una
+  // guardia al entrar, como Jit64 (ComputeStaticGQRs): psq_l los decuantiza en linea en vez de llamar a la rutina por
+  // tabla. Si un GQR cambio, el bloque se anota en pairedQuantizeAddresses y se recompila sin suponer nada.
+  if (m_stv_gqr && !js.assumeNoPairedQuantize && !jo.memcheck && jo.fastmem && code_block.m_gqr_used &&
+      !js.pairedQuantizeAddresses.contains(js.blockStart))
+  {
+    BitSet8 fijos;
+    for (int gqr : code_block.m_gqr_used)
+    {
+      if (!code_block.m_gqr_modified[gqr])
+        fijos[gqr] = true;
+    }
+    if (fijos)
+    {
+      std::vector<FixupBranch> fallas;
+      for (int gqr : fijos)
+      {
+        const u32 valor = GQR(m_ppc_state, gqr);
+        js.constantGqr[gqr] = valor;
+        LDR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF_SPR(SPR_GQR0 + gqr));
+        MOVI2R(ARM64Reg::W1, valor);
+        CMP(ARM64Reg::W0, ARM64Reg::W1);
+        FixupBranch igual = B(CC_EQ);
+        fallas.push_back(B());
+        SetJumpTarget(igual);
+      }
+      SwitchToFarCode();
+      for (FixupBranch& f : fallas)
+        SetJumpTarget(f);
+      MOVI2R(DISPATCHER_PC, js.blockStart);
+      STR(IndexType::Unsigned, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
+      ABI_CallFunction(&JitInterface::CompileExceptionCheckFromJIT, &m_system.GetJitInterface(),
+                       static_cast<u32>(JitInterface::ExceptionType::PairedQuantize));
+      B(dispatcher_no_check);
+      SwitchToNearCode();
+      js.constantGqrValid = fijos;
     }
   }
 
