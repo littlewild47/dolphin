@@ -232,6 +232,21 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_VOLATIL_x: debug.stv.gc.volatil = 0..3 (bits; vacia la cache del JIT).
+    {
+      char vo[PROP_VALUE_MAX] = {};
+      static int stv_vo_prev = -1;
+      if (__system_property_get("debug.stv.gc.volatil", vo) > 0 && vo[0] >= '0' && vo[0] <= '3')
+      {
+        const int n = vo[0] - '0';
+        if (n != stv_vo_prev)
+        {
+          stv_vo_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_VOLATIL, n);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: volatil=%d", n);
+        }
+      }
+    }
     // STV_GC_CEROCERCA_v1: debug.stv.gc.cerocerca = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char cc[PROP_VALUE_MAX] = {};

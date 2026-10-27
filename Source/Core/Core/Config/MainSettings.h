@@ -76,6 +76,9 @@ extern const Info<bool> MAIN_STV_CERO;
 // STV_GC_CEROCERCA_v1: el chequeo de ceros de CERO va en el codigo cercano, detras del chequeo rapido de Dolphin (un
 // par con un 0,0 ya no viaja al codigo lejano). Simpsons +4,1 %, Twilight Princess +2,6 %.
 extern const Info<bool> MAIN_STV_CERO_CERCA;
+// STV_GC_VOLATIL_x: 0 nada, bit 1 = cargas/guardados sin memcheck no cortan el analisis de descartables, bit 2 = los
+// volatiles del ABI muertos en el blr final.
+extern const Info<int> MAIN_STV_VOLATIL;
 // STV_GC_FIFORUT_v1: las rutinas de psq_st cuantizado escriben directo en el gather pipe si la direccion es la del FIFO.
 extern const Info<bool> MAIN_STV_FIFO_RUT;
 // STV_GC_GQR_v1: un GQR que el bloque usa y no cambia se fija al compilar (con guardia al entrar), como en Jit64.

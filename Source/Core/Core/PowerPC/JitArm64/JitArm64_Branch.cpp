@@ -351,8 +351,11 @@ void JitArm64::bclrx(UGeckoInstruction inst)
       STR(IndexType::Unsigned, WB, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
 
-    gpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, WB);
-    fpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, ARM64Reg::INVALID_REG);
+    // STV_GC_VOLATIL_x: en el blr final los volatiles pueden estar descartados (ver PPCAnalyst).
+    const IgnoreDiscardedRegisters stv_ign =
+        (!conditional && (m_stv_volatil & 2)) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No;
+    gpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, WB, stv_ign);
+    fpr.Flush(conditional ? FlushMode::MaintainState : FlushMode::Full, ARM64Reg::INVALID_REG, stv_ign);
 
     if (IsBranchWatchEnabled())
     {

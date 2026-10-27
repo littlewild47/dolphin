@@ -622,7 +622,8 @@ void PPCAnalyzer::SetInstructionStats(CodeBlock* block, CodeOp* code,
   code->canEndBlock = InstructionCanEndBlock(*code);
 
   code->canCauseException = first_fpu_instruction ||
-                            (opinfo->flags & (FL_LOADSTORE | FL_PROGRAMEXCEPTION)) != 0 ||
+                            (opinfo->flags & FL_PROGRAMEXCEPTION) != 0 ||
+                            ((opinfo->flags & FL_LOADSTORE) != 0 && !HasOption(OPTION_STV_LSU_SIN_EXCEPCION)) ||
                             (m_enable_float_exceptions && (opinfo->flags & FL_FLOAT_EXCEPTION)) ||
                             (m_enable_div_by_zero_exceptions && (opinfo->flags & FL_FLOAT_DIV));
 
@@ -993,6 +994,14 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   BitSet8 crWillBeRead, crWillBeWritten, crDiscardable;
   BitSet32 gprWillBeRead, gprWillBeWritten, fprWillBeRead, fprWillBeWritten, gprDiscardable,
       fprDiscardable, fprInXmm;
+  // STV_GC_VOLATIL_x: blr incondicional sin link al final del bloque (y no saltado por seguir ramas).
+  int stv_blr_final = -1;
+  if (HasOption(OPTION_STV_VOLATILES_MUERTOS) && block->m_num_instructions > 0)
+  {
+    const CodeOp& u = code[block->m_num_instructions - 1];
+    if (!u.skip && u.inst.OPCD == 19 && u.inst.SUBOP10 == 16 && !u.inst.LK && (u.inst.BO & 0x14) == 0x14)
+      stv_blr_final = static_cast<int>(block->m_num_instructions - 1);
+  }
   for (int i = block->m_num_instructions - 1; i >= 0; i--)
   {
     CodeOp& op = code[i];
@@ -1053,6 +1062,14 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
       crWillBeWritten = BitSet8{};
       gprDiscardable = BitSet32{};
       fprDiscardable = BitSet32{};
+      crDiscardable = BitSet8{};
+    }
+    else if (i == stv_blr_final)
+    {
+      // STV_GC_VOLATIL_x: antes del blr final, los volatiles (salvo r3-r4 y f1-f4, posibles valores de retorno) no se
+      // leen mas: quedan descartables hacia atras hasta la ultima salida o excepcion posible.
+      gprDiscardable = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12} & ~op.regsIn;
+      fprDiscardable = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13} & ~op.fregsIn;
       crDiscardable = BitSet8{};
     }
     else if (op.canEndBlock || op.canCauseException)

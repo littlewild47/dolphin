@@ -145,6 +145,9 @@ bool JitBase::DoesConfigNeedRefresh() const
   // STV_GC_FIFO3_v1: idem para el umbral del gather pipe.
   if (m_stv_gp_pedido != Config::Get(Config::MAIN_STV_GP_UMBRAL))
     return true;
+  // STV_GC_VOLATIL_x
+  if (m_stv_volatil != Config::Get(Config::MAIN_STV_VOLATIL))
+    return true;
   return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
     return this->*pair.first != Config::Get(*pair.second);
   });
@@ -185,6 +188,16 @@ void JitBase::RefreshConfig()
   // STV_GC_FIFO3_v1: umbral acotado a 32..256 en multiplos de 32 (el bufer del gather pipe mide 512).
   m_stv_gp_pedido = Config::Get(Config::MAIN_STV_GP_UMBRAL);
   m_stv_gp_umbral = (m_stv_gp_pedido >= 32 && m_stv_gp_pedido <= 256) ? (m_stv_gp_pedido & ~31) : 32;
+  // STV_GC_VOLATIL_x: opciones del analizador (bit 1: solo sin memcheck).
+  m_stv_volatil = Config::Get(Config::MAIN_STV_VOLATIL);
+  if ((m_stv_volatil & 1) && !jo.memcheck)
+    analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_LSU_SIN_EXCEPCION);
+  else
+    analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_LSU_SIN_EXCEPCION);
+  if (m_stv_volatil & 2)
+    analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
+  else
+    analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
   // STV_GC_FIFO3_v1: los caminos de C++ (FastCheckGatherPipe, CheckGatherPipe, Advance, PI) leen el mismo umbral; el
   // aviso en lote va prendido con el umbral por encima de 32. Se fijan aca, en el mismo ClearCache que recompila.
   GPFifo::g_stv_gp_umbral_c = m_stv_gp_umbral;

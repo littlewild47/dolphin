@@ -174,6 +174,13 @@ public:
 
     // Reorder cror instructions next to their associated fcmp.
     OPTION_CROR_MERGE = (1 << 6),
+
+    // STV_GC_VOLATIL_x: sin memcheck una carga o un guardado no sale del bloque: no corta el analisis de registros
+    // descartables.
+    OPTION_STV_LSU_SIN_EXCEPCION = (1 << 29),
+    // STV_GC_VOLATIL_x: en un bloque que termina en blr incondicional, los registros volatiles del ABI (r0, r5-r12,
+    // f0, f5-f13) estan muertos al salir.
+    OPTION_STV_VOLATILES_MUERTOS = (1 << 30),
   };
 
   // Option setting/getting

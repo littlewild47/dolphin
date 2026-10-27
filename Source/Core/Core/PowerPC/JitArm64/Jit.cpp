@@ -1576,15 +1576,18 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         fpr.DiscardRegisters(op.fprDiscardable);
         gpr.DiscardCRRegisters(op.crDiscardable);
       }
-      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut),
+      // STV_GC_VOLATIL_x: un volatil muerto en el blr final ya se descarto: no se vacia (ni se convierte).
+      const BitSet32 stv_gd = m_stv_volatil ? op.gprDiscardable : BitSet32{};
+      const BitSet32 stv_fd = m_stv_volatil ? op.fprDiscardable : BitSet32{};
+      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut) & ~stv_gd,
                          FlushMode::Full);
       fpr.FlushRegisters(~(op.fprWillBeRead | op.fprWillBeWritten) &
-                             (op.fregsIn | op.GetFregsOut()),
+                             (op.fregsIn | op.GetFregsOut()) & ~stv_fd,
                          FlushMode::Full);
       gpr.FlushCRRegisters(~(op.crWillBeRead | op.crWillBeWritten) & (op.crIn | op.crOut),
                            FlushMode::Full);
-      gpr.FlushRegisters(~op.gprWillBeWritten & op.regsOut, FlushMode::Undirty);
-      fpr.FlushRegisters(~op.fprWillBeWritten & op.GetFregsOut(), FlushMode::Undirty);
+      gpr.FlushRegisters(~op.gprWillBeWritten & op.regsOut & ~stv_gd, FlushMode::Undirty);
+      fpr.FlushRegisters(~op.fprWillBeWritten & op.GetFregsOut() & ~stv_fd, FlushMode::Undirty);
       gpr.FlushCRRegisters(~op.crWillBeWritten & op.crOut, FlushMode::Undirty);
 
       if (opinfo->flags & FL_LOADSTORE)
