@@ -1082,8 +1082,10 @@ void JitArm64::Jit(u32 em_address)
   Jit(em_address, true);
 }
 
+extern u64 g_stv_jit_n;
 void JitArm64::Jit(u32 em_address, bool clear_cache_and_retry_on_failure)
 {
+  ++g_stv_jit_n;
   CleanUpAfterStackFault();
 
   if (SConfig::GetInstance().bJITNoBlockCache)

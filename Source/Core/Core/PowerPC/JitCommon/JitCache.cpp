@@ -76,6 +76,7 @@ void JitBaseBlockCache::Shutdown()
 // is full and when saving and loading states.
 void JitBaseBlockCache::Clear()
 {
+  ++g_stv_clear_n;
 #if defined(_DEBUG) || defined(DEBUGFAST)
   Core::DisplayMessage("Clearing code cache.", 3000);
 #endif
@@ -265,6 +266,9 @@ const u8* JitBaseBlockCache::Dispatch()
   return block->normalEntry;
 }
 
+// STV_GC_JITCUENTA_x (instrumento): invalidaciones que destruyen bloques (y sus bytes) y compilaciones.
+u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
+
 void JitBaseBlockCache::InvalidateICacheLine(u32 address)
 {
   const u32 cache_line_address = address & ~0x1f;
@@ -329,6 +333,8 @@ void JitBaseBlockCache::InvalidateICacheInternal(u32 physical_address, u32 addre
 
   if (destroy_block)
   {
+    ++g_stv_inval_n;
+    g_stv_inval_b += length;
     // destroy JIT blocks
     ErasePhysicalRange(physical_address, length);
 

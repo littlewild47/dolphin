@@ -17,6 +17,8 @@
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
 
+extern u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
+
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
 // cuadros, los VI y la velocidad de la emulacion; el cuadro mas largo, los de mas de 50 ms, las compilaciones de
@@ -337,6 +339,16 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_JITCUENTA_x: compilaciones, invalidaciones (y bytes) y vaciados de la cache del JIT por segundo.
+    {
+      static u64 j0, i0, b0, c0;
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: compilaciones=%llu/s invalidaciones=%llu/s (%llu B) vaciados=%llu",
+                            (unsigned long long)(g_stv_jit_n - j0), (unsigned long long)(g_stv_inval_n - i0),
+                            (unsigned long long)(g_stv_inval_b - b0), (unsigned long long)(g_stv_clear_n - c0));
+      j0 = g_stv_jit_n; i0 = g_stv_inval_n; b0 = g_stv_inval_b; c0 = g_stv_clear_n;
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')
