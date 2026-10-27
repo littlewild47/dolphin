@@ -625,8 +625,13 @@ void PPCAnalyzer::SetInstructionStats(CodeBlock* block, CodeOp* code,
   code->outputFPRF = (opinfo->flags & FL_SET_FPRF) != 0;
   code->canEndBlock = InstructionCanEndBlock(*code);
 
+  // STV_GC_VOLATIL_x (bit 1): JitArm64 no emite la excepcion de programa de los pares (solo existe si la
+  // instruccion cae al interprete, y ese vaciado ya ignora los descartados).
+  const bool stv_ps = HasOption(OPTION_STV_LSU_SIN_EXCEPCION) &&
+                      (opinfo->type == OpType::PS || opinfo->type == OpType::LoadPS ||
+                       opinfo->type == OpType::StorePS);
   code->canCauseException = first_fpu_instruction ||
-                            (opinfo->flags & FL_PROGRAMEXCEPTION) != 0 ||
+                            ((opinfo->flags & FL_PROGRAMEXCEPTION) != 0 && !stv_ps) ||
                             ((opinfo->flags & FL_LOADSTORE) != 0 && !HasOption(OPTION_STV_LSU_SIN_EXCEPCION)) ||
                             (m_enable_float_exceptions && (opinfo->flags & FL_FLOAT_EXCEPTION)) ||
                             (m_enable_div_by_zero_exceptions && (opinfo->flags & FL_FLOAT_DIV));
