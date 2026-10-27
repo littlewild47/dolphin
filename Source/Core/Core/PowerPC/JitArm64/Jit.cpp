@@ -1262,6 +1262,12 @@ std::optional<size_t> JitArm64::SetEmitterStateToFreeCodeRegion()
   }
 }
 
+// STV_GC_AUDITA_x (instrumento): bytes de codigo cercano y lejano que emite cada instruccion PowerPC (con sus chequeos
+// previos y vaciados posteriores), por bloque. "<entrada>" es lo emitido antes de la primera instruccion y "<fin>" lo
+// emitido despues de la ultima. Lo prende y vuelca debug.stv.gc.audita (PerformanceMetrics); solo el hilo de CPU.
+bool g_stv_audita = false;
+std::unordered_map<u32, std::vector<STVAuditaOp>> g_stv_audita_bloques;
+
 bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 {
   auto& cpu = m_system.GetCPU();
@@ -1281,6 +1287,15 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.numFloatingPointInst = 0;
 
   b->normalEntry = GetWritableCodePtr();
+  // STV_GC_AUDITA_x
+  std::vector<STVAuditaOp>* stv_aud = nullptr;
+  const u8* stv_n0 = GetCodePtr();
+  const u8* stv_f0 = m_far_code.GetCodePtr();
+  if (g_stv_audita)
+  {
+    stv_aud = &g_stv_audita_bloques[em_address];
+    stv_aud->clear();
+  }
 
   // STV_GC_JITGF_v1: modo 2, verificacion de los fijos contra ppcState al entrar.
   if (STVGf() == 2)
@@ -1361,8 +1376,15 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   }
 
   // Translate instructions
+  if (stv_aud)
+  {
+    stv_aud->push_back({"<entrada>", em_address, 0, static_cast<u32>(GetCodePtr() - stv_n0),
+                        static_cast<u32>(m_far_code.GetCodePtr() - stv_f0)});
+  }
   for (u32 i = 0; i < code_block.m_num_instructions; i++)
   {
+    const u8* stv_in = GetCodePtr();
+    const u8* stv_if = m_far_code.GetCodePtr();
     PPCAnalyst::CodeOp& op = m_code_buffer[i];
 
     js.compilerPC = op.address;
@@ -1604,6 +1626,12 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         ++js.numFloatingPointInst;
     }
 
+    if (stv_aud)
+    {
+      stv_aud->push_back({m_code_buffer[i].opinfo->opname, m_code_buffer[i].address, m_code_buffer[i].inst.hex,
+                          static_cast<u32>(GetCodePtr() - stv_in),
+                          static_cast<u32>(m_far_code.GetCodePtr() - stv_if)});
+    }
     i += js.skipInstructions;
     js.skipInstructions = 0;
   }
@@ -1613,6 +1641,19 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     WriteExit(nextPC);
+  }
+
+  // STV_GC_AUDITA_x: lo que se emite despues de la ultima instruccion (vaciado y salida de un bloque cortado).
+  if (stv_aud && !stv_aud->empty())
+  {
+    u32 cerca = 0, lejos = 0;
+    for (const auto& e : *stv_aud)
+    {
+      cerca += e.cerca;
+      lejos += e.lejos;
+    }
+    stv_aud->push_back({"<fin>", nextPC, 0, static_cast<u32>(GetCodePtr() - stv_n0) - cerca,
+                        static_cast<u32>(m_far_code.GetCodePtr() - stv_f0) - lejos});
   }
 
   if (HasWriteFailed() || m_far_code.HasWriteFailed())

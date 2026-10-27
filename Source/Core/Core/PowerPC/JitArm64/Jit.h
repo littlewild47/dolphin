@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <unordered_map>
+#include <vector>
+
 #include <cstddef>
 #include <map>
 #include <optional>
@@ -19,6 +22,18 @@
 #include "Core/PowerPC/PPCAnalyst.h"
 
 class HostDisassembler;
+
+// STV_GC_AUDITA_x (instrumento, ver Jit.cpp)
+struct STVAuditaOp
+{
+  const char* nombre;
+  u32 pc;
+  u32 hex;
+  u32 cerca;
+  u32 lejos;
+};
+extern bool g_stv_audita;
+extern std::unordered_map<u32, std::vector<STVAuditaOp>> g_stv_audita_bloques;
 
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {

@@ -13,6 +13,7 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/PowerPC/JitArm64/Jit.h"
 #include <unistd.h>
 #include <string>
 #include <cstdio>
@@ -309,6 +310,40 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         __android_log_print(ANDROID_LOG_INFO, "STVGC", "fpscr=%08x ni=%d",
                             Core::System::GetInstance().GetPPCState().fpscr.Hex,
                             (int)Core::System::GetInstance().GetPPCState().fpscr.NI.Value());
+    }
+    // STV_GC_AUDITA_x (instrumento): debug.stv.gc.audita = "1" registra lo que emite el JIT por instruccion (desde la
+    // proxima compilacion; vacia el registro), "d<n>" lo escribe en files/perf/audita-<pid>.tsv.
+    {
+      char au[PROP_VALUE_MAX] = {};
+      static std::string stv_au_prev;
+      if (__system_property_get("debug.stv.gc.audita", au) > 0 && stv_au_prev != au)
+      {
+        stv_au_prev = au;
+        if (au[0] == '1')
+        {
+          g_stv_audita_bloques.clear();
+          g_stv_audita = true;
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "audita: registrando");
+        }
+        else if (au[0] == 'd')
+        {
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/audita-{}.tsv", getpid());
+          if (std::FILE* f = std::fopen(ruta.c_str(), "w"))
+          {
+            u64 n = 0;
+            for (const auto& [blq, ops] : g_stv_audita_bloques)
+              for (const auto& e : ops)
+              {
+                std::fprintf(f, "%08x\t%08x\t%08x\t%s\t%u\t%u\n", blq, e.pc, e.hex, e.nombre, e.cerca, e.lejos);
+                ++n;
+              }
+            std::fclose(f);
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "audita: %llu lineas en %s", (unsigned long long)n,
+                                ruta.c_str());
+          }
+        }
+      }
     }
     // STV_GC_CEROCERCA_v1: debug.stv.gc.cerocerca = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
