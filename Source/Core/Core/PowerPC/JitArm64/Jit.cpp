@@ -993,8 +993,11 @@ void JitArm64::WriteConditionalExceptionExit(int exception, ARM64Reg temp_gpr, A
   if (increment_sp_on_exit != 0)
     ADDI2R(ARM64Reg::SP, ARM64Reg::SP, increment_sp_on_exit, temp_gpr);
 
-  gpr.Flush(FlushMode::MaintainState, temp_gpr);
-  fpr.Flush(FlushMode::MaintainState, temp_fpr);
+  // STV_GC_VOLATIL_x: un volatil muerto puede estar descartado en una salida por excepcion.
+  const IgnoreDiscardedRegisters stv_ign =
+      (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No;
+  gpr.Flush(FlushMode::MaintainState, temp_gpr, stv_ign);
+  fpr.Flush(FlushMode::MaintainState, temp_fpr, stv_ign);
 
   WriteExceptionExit(js.compilerPC, false, true);
 
@@ -1436,8 +1439,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         TST(WA, LogicalImm(cause_mask, GPRSize::B32));
         B(CC_EQ, done_here);
 
-        gpr.Flush(FlushMode::MaintainState, WA);
-        fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+        gpr.Flush(FlushMode::MaintainState, WA,
+                  (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
+        fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG,
+                  (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
         WriteExceptionExit(js.compilerPC, true, true);
         SwitchToNearCode();
         SetJumpTarget(no_ext_exception);
@@ -1509,8 +1514,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
           SwitchToFarCode();
           SetJumpTarget(far_addr);
 
-          gpr.Flush(FlushMode::MaintainState, WA);
-          fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+          gpr.Flush(FlushMode::MaintainState, WA,
+                    (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
+          fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG,
+                    (m_stv_volatil & 2) ? IgnoreDiscardedRegisters::Yes : IgnoreDiscardedRegisters::No);
 
           LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(Exceptions));
           ORR(WA, WA, LogicalImm(EXCEPTION_FPU_UNAVAILABLE, GPRSize::B32));

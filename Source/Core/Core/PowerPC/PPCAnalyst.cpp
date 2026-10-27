@@ -1005,6 +1005,7 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
       fprDiscardable, fprInXmm;
   // STV_GC_VOLATIL_x: blr incondicional sin link al final del bloque (y no saltado por seguir ramas).
   int stv_blr_final = -1;
+  BitSet32 stv_vg, stv_vf;
   if (HasOption(OPTION_STV_VOLATILES_MUERTOS) && block->m_num_instructions > 0)
   {
     const CodeOp& u = code[block->m_num_instructions - 1];
@@ -1043,9 +1044,29 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     op.fprWillBeWritten = fprWillBeWritten;
     op.crWillBeRead = crWillBeRead;
     op.crWillBeWritten = crWillBeWritten;
-    op.gprDiscardable = gprDiscardable;
-    op.fprDiscardable = fprDiscardable;
+    op.gprDiscardable = gprDiscardable | stv_vg;
+    op.fprDiscardable = fprDiscardable | stv_vf;
     op.crDiscardable = crDiscardable;
+    // STV_GC_VOLATIL_x: volatiles muertos desde el blr final (salvo r3-r4 y f1-f4, posibles valores de retorno). Los
+    // corta solo una salida a otro codigo (rama, sc, rfi...): una excepcion o el chequeo de interrupcion tras un guardado
+    // vuelve a la instruccion siguiente de esta misma funcion, que no los lee.
+    if (i == stv_blr_final)
+    {
+      stv_vg = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12} & ~op.regsIn;
+      stv_vf = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13} & ~op.fregsIn;
+    }
+    else if (op.canEndBlock || hle || breakpoint)
+    {
+      stv_vg = BitSet32{};
+      stv_vf = BitSet32{};
+    }
+    else if (stv_blr_final >= 0)
+    {
+      stv_vg |= op.regsOut & BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12};
+      stv_vg &= ~op.regsIn;
+      stv_vf |= op.GetFregsOut() & BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13};
+      stv_vf &= ~op.fregsIn;
+    }
     op.fprInXmm = fprInXmm;
     gprWillBeRead &= ~op.regsOut;
     gprWillBeRead |= op.regsIn;
@@ -1071,14 +1092,6 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
       crWillBeWritten = BitSet8{};
       gprDiscardable = BitSet32{};
       fprDiscardable = BitSet32{};
-      crDiscardable = BitSet8{};
-    }
-    else if (i == stv_blr_final)
-    {
-      // STV_GC_VOLATIL_x: antes del blr final, los volatiles (salvo r3-r4 y f1-f4, posibles valores de retorno) no se
-      // leen mas: quedan descartables hacia atras hasta la ultima salida o excepcion posible.
-      gprDiscardable = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12} & ~op.regsIn;
-      fprDiscardable = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13} & ~op.fregsIn;
       crDiscardable = BitSet8{};
     }
     else if (op.canEndBlock || op.canCauseException)
