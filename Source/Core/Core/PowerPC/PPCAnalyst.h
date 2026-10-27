@@ -187,6 +187,9 @@ public:
     OPTION_STV_SALTO_INTERNO = (1 << 28),
     // STV_GC_CRVOL_x: con OPTION_STV_VOLATILES_MUERTOS, tambien los campos volatiles del CR (0, 1, 5, 6, 7).
     OPTION_STV_CR_VOLATIL = (1 << 27),
+    // STV_GC_HOJA_x: sin seguir ramas en general, seguir igual un bl a una funcion hoja chica en linea recta (hasta 8
+    // instrucciones terminadas en blr, sin otras ramas ni LR/MSR): _savegpr/_restgpr y lectores.
+    OPTION_STV_HOJA = (1 << 26),
     // STV_GC_VOLATIL_x: en un bloque que termina en blr incondicional, los registros volatiles del ABI (r0, r5-r12,
     // f0, f5-f13) estan muertos al salir.
     OPTION_STV_VOLATILES_MUERTOS = (1 << 30),

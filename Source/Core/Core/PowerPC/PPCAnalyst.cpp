@@ -817,6 +817,37 @@ static bool CanCauseGatherPipeInterruptCheck(const CodeOp& op)
          op.opinfo->type == OpType::StorePS;
 }
 
+// STV_GC_HOJA_x: hasta 8 instrucciones en linea recta terminadas en blr incondicional: ninguna otra rama (b, bc, bclr,
+// bcctr, rfi, sc), ni mtspr/mfspr de LR o CTR, ni mtmsr/mfmsr, ni tw/twi.
+static bool STVEsHojaChica(PowerPC::MMU& mmu, u32 destino)
+{
+  for (u32 k = 0; k < 8; k++)
+  {
+    const auto r = mmu.TryReadInstruction(destino + 4 * k);
+    if (!r.valid)
+      return false;
+    const UGeckoInstruction in = r.hex;
+    if (in.hex == 0x4E800020)
+      return true;
+    switch (in.OPCD)
+    {
+    case 3:   // twi
+    case 16:  // bc
+    case 17:  // sc
+    case 18:  // b
+    case 19:  // bclr, bcctr, rfi, isync, cr...
+      return false;
+    case 31:
+      if (in.SUBOP10 == 4 || in.SUBOP10 == 146 || in.SUBOP10 == 83 || in.SUBOP10 == 339 || in.SUBOP10 == 467)
+        return false;  // tw, mtmsr, mfmsr, mfspr, mtspr
+      break;
+    default:
+      break;
+    }
+  }
+  return false;
+}
+
 u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
                          std::size_t block_size) const
 {
@@ -882,7 +913,36 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     //       If it is small, the performance will be down.
     //       If it is big, the size of generated code will be big and
     //       cache clearning will happen many times.
-    if (enable_follow && HasOption(OPTION_BRANCH_FOLLOW))
+    // STV_GC_HOJA_x
+    const bool stv_hoja_llamada =
+        !enable_follow && HasOption(OPTION_STV_HOJA) && inst.OPCD == 18 && inst.LK && block_size > 1 &&
+        numFollows < BRANCH_FOLLOWING_THRESHOLD && STVEsHojaChica(mmu, code[i].branchTo);
+    if (!enable_follow && HasOption(OPTION_STV_HOJA))
+    {
+      if (stv_hoja_llamada)
+      {
+        follow = true;
+        found_call = true;
+        caller = i;
+      }
+      else if (inst.OPCD == 19 && inst.SUBOP10 == 16 && !inst.LK && found_call)
+      {
+        code[i].branchTo = code[caller].address + 4;
+        if ((inst.BO & BO_DONT_DECREMENT_FLAG) && (inst.BO & BO_DONT_CHECK_CONDITION) &&
+            numFollows < BRANCH_FOLLOWING_THRESHOLD)
+        {
+          follow = true;
+          found_call = false;
+          code[i].skip = true;
+          code[caller].skipLRStack = true;
+        }
+      }
+      else if (IsMtspr(inst) && GetSPRIndex(inst) == SPR_LR)
+      {
+        found_call = false;
+      }
+    }
+    else if (enable_follow && HasOption(OPTION_BRANCH_FOLLOW))
     {
       if (inst.OPCD == 18 && block_size > 1)
       {
