@@ -1097,6 +1097,8 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   // STV_GC_VOLATIL_x (depuracion): el bloque de memset de la SDK.
   if (code[0].address == 0x80347350)
   {
+    __android_log_print(ANDROID_LOG_ERROR, "STVGC", "vol: opciones=%08x fpexc=%d divexc=%d", m_options,
+                        (int)m_enable_float_exceptions, (int)m_enable_div_by_zero_exceptions);
     for (u32 k = 0; k < block->m_num_instructions; k++)
       __android_log_print(ANDROID_LOG_ERROR, "STVGC", "vol: %08x %08x fin=%d exc=%d skip=%d fin_blr=%d fdesc=%08x fwr=%08x fww=%08x",
                           code[k].address, code[k].inst.hex, code[k].canEndBlock, code[k].canCauseException,
