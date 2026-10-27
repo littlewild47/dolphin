@@ -3,6 +3,8 @@
 
 #include "Core/HW/GPFifo.h"
 
+#include <algorithm>
+
 #include <cstddef>
 #include <cstring>
 
@@ -97,8 +99,27 @@ void GPFifoManager::UpdateGatherPipe()
   auto& processor_interface = system.GetProcessorInterface();
 
   size_t pipe_count = GetGatherPipeCount();
-  size_t processed;
-  for (processed = 0; pipe_count >= GATHER_PIPE_SIZE; processed += GATHER_PIPE_SIZE)
+  size_t processed = 0;
+  // STV_GC_GPCOPIA_x: con el lote, las rafagas contiguas hasta el fin del FIFO del CPU se copian de una vez (antes: un
+  // CopyToEmu por rafaga de 32 bytes, ~280 mil por segundo). El puntero de escritura avanza igual que rafaga por rafaga.
+  if (CommandProcessor::g_stv_fifo_lote && g_stv_gp_copia)
+  {
+    while (pipe_count >= GATHER_PIPE_SIZE)
+    {
+      const u32 w = processor_interface.m_fifo_cpu_write_pointer;
+      const u32 fin = processor_interface.m_fifo_cpu_end;
+      const size_t lugar = fin >= w ? (fin - w) / GATHER_PIPE_SIZE + 1 : 1;
+      const size_t k = std::min(pipe_count / GATHER_PIPE_SIZE, lugar);
+      memory.CopyToEmu(w, m_gather_pipe + processed, k * GATHER_PIPE_SIZE);
+      processed += k * GATHER_PIPE_SIZE;
+      pipe_count -= k * GATHER_PIPE_SIZE;
+      if (fin >= w && k == lugar)
+        processor_interface.m_fifo_cpu_write_pointer = processor_interface.m_fifo_cpu_base;
+      else
+        processor_interface.m_fifo_cpu_write_pointer = w + static_cast<u32>(k * GATHER_PIPE_SIZE);
+    }
+  }
+  for (; pipe_count >= GATHER_PIPE_SIZE; processed += GATHER_PIPE_SIZE)
   {
     // copy the GatherPipe
     memory.CopyToEmu(processor_interface.m_fifo_cpu_write_pointer, m_gather_pipe + processed,
@@ -124,6 +145,9 @@ void GPFifoManager::UpdateGatherPipe()
   memmove(m_gather_pipe, m_gather_pipe + processed, pipe_count);
   SetGatherPipeCount(pipe_count);
 }
+
+// STV_GC_GPCOPIA_x: valvula debug.stv.gc.gpcopia (la fija PerformanceMetrics).
+bool g_stv_gp_copia = true;
 
 // STV_GC_FIFO3_v1: umbral de vaciado tambien en los caminos de C++ (escrituras lentas al FIFO); lo fija la valvula.
 u32 g_stv_gp_umbral_c = GATHER_PIPE_SIZE;

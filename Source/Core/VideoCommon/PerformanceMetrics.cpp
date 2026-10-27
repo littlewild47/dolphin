@@ -232,6 +232,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_GPCOPIA_x: debug.stv.gc.gpcopia = 0|1 (copia de las rafagas del gather pipe de una vez).
+    {
+      char gc[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.gpcopia", gc) > 0 && (gc[0] == '0' || gc[0] == '1'))
+        GPFifo::g_stv_gp_copia = gc[0] == '1';
+    }
     // STV_GC_CEROCERCA_x: debug.stv.gc.cerocerca = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char cc[PROP_VALUE_MAX] = {};
