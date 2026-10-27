@@ -1,6 +1,10 @@
 // Copyright 2016 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#ifdef ANDROID
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 #include "VideoBackends/Vulkan/VKVertexManager.h"
 
 #include <algorithm>
@@ -66,8 +70,18 @@ bool VertexManager::Initialize()
                            VERTEX_STREAM_BUFFER_SIZE);
   m_index_stream_buffer =
       StreamBuffer::Create(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, INDEX_STREAM_BUFFER_SIZE);
-  m_uniform_stream_buffer =
-      StreamBuffer::Create(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, UNIFORM_STREAM_BUFFER_SIZE);
+  // STV_GC_UNIF_x: tamano del bufer de uniformes por debug.stv.gc.unifmb (MB, al crear los buferes; por defecto el de
+  // MEMORIA_v1). En Twilight Princess el hilo de video esperaba a la GPU 6,8 % del tiempo por falta de lugar en el.
+  u32 stv_unif = UNIFORM_STREAM_BUFFER_SIZE;
+#ifdef ANDROID
+  {
+    char um[PROP_VALUE_MAX] = {};
+    if (__system_property_get("debug.stv.gc.unifmb", um) > 0 && atoi(um) >= 4 && atoi(um) <= 128)
+      stv_unif = static_cast<u32>(atoi(um)) << 20;
+    __android_log_print(ANDROID_LOG_INFO, "STVGC", "uniformes: %u MB", stv_unif >> 20);
+  }
+#endif
+  m_uniform_stream_buffer = StreamBuffer::Create(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, stv_unif);
   if (!m_vertex_stream_buffer || !m_index_stream_buffer || !m_uniform_stream_buffer)
   {
     PanicAlertFmt("Failed to allocate streaming buffers");
