@@ -76,6 +76,8 @@ extern std::atomic<u32> g_stv_efb_copias, g_stv_efb_ram, g_stv_efb_inmed, g_stv_
 extern std::atomic<u32> g_stv_efb_vac[4], g_stv_efb_vac_us, g_stv_efb_vac_n;
 extern std::mutex g_stv_efb_mx;
 extern std::map<u64, u32> g_stv_efb_tipos;
+extern std::string g_stv_efb_ultimo;
+extern u32 g_stv_kick;  // STV_GC_KICK_x (VertexManagerBase.cpp)
 static TimePoint s_stv_ultimo_cuadro{};
 
 void PerformanceMetrics::CountFrame()
@@ -533,6 +535,16 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                                (t >> 8) & 0xFFF, (t >> 1) & 0x7F, t & 1, n);
         }
         g_stv_efb_tipos.clear();
+        tipos += " | cuadro:" + g_stv_efb_ultimo;
+      }
+      char kk[PROP_VALUE_MAX] = {};
+      static int stv_kk_prev = -1;
+      const int kn = __system_property_get("debug.stv.gc.kick", kk) > 0 ? atoi(kk) : 0;
+      if (kn != stv_kk_prev && kn >= 0 && kn <= 5000)
+      {
+        stv_kk_prev = kn;
+        g_stv_kick = static_cast<u32>(kn);
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "video: kick=%d", kn);
       }
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')

@@ -184,6 +184,16 @@ std::atomic<u32> g_stv_efb_copias{0}, g_stv_efb_ram{0}, g_stv_efb_inmed{0}, g_st
 std::atomic<u32> g_stv_efb_vac[4]{}, g_stv_efb_vac_us{0}, g_stv_efb_vac_n{0};
 std::mutex g_stv_efb_mx;
 std::map<u64, u32> g_stv_efb_tipos;
+// Cronologia del cuadro: dibujo en que cae cada copia a RAM (c), cada vaciado (v<motivo>) y el total al terminar.
+extern std::atomic<u32> g_stv_dibujo;  // VertexManagerBase.cpp
+static std::string s_stv_efb_cuadro;
+std::string g_stv_efb_ultimo;
+void StvEfbFinCuadro()
+{
+  std::lock_guard lk(g_stv_efb_mx);
+  g_stv_efb_ultimo = s_stv_efb_cuadro + fmt::format(" fin@{}", g_stv_dibujo.load(std::memory_order_relaxed));
+  s_stv_efb_cuadro.clear();
+}
 
 // STV_GC_METRICAS: tamano de la cache de texturas (entradas vivas y pool de libres), cada 60 cuadros.
 std::atomic<u32> g_stv_tex_n{0}, g_stv_tex_kb{0}, g_stv_pool_n{0}, g_stv_pool_kb{0};
@@ -2454,6 +2464,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
                     ((tex_h & 0xFFF) << 8) | ((static_cast<u32>(dstFormat) & 0x7F) << 1) |
                     (is_depth_copy ? 1 : 0);
       g_stv_efb_tipos[k]++;
+      if (s_stv_efb_cuadro.size() < 400)
+        s_stv_efb_cuadro += fmt::format(" c{}x{}@{}", tex_w, tex_h, g_stv_dibujo.load(std::memory_order_relaxed));
     }
     const std::array<u32, 3> coefficients = GetRAMCopyFilterCoefficients(filter_coefficients);
     PixelFormat srcFormat = bpmem.zcontrol.pixel_format;
@@ -2587,6 +2599,11 @@ void TextureCacheBase::FlushEFBCopies(int stv_motivo)
     return;
 
   const auto stv_t0 = std::chrono::steady_clock::now();
+  {
+    std::lock_guard lk(g_stv_efb_mx);
+    if (s_stv_efb_cuadro.size() < 400)
+      s_stv_efb_cuadro += fmt::format(" v{}@{}", stv_motivo, g_stv_dibujo.load(std::memory_order_relaxed));
+  }
   g_stv_efb_vac[stv_motivo & 3].fetch_add(1, std::memory_order_relaxed);
   g_stv_efb_vac_n.fetch_add(static_cast<u32>(m_pending_efb_copies.size()), std::memory_order_relaxed);
   for (auto& entry : m_pending_efb_copies)

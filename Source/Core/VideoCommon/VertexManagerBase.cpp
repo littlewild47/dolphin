@@ -933,9 +933,24 @@ void VertexManagerBase::OnConfigChange()
   m_index_generator.Init();
 }
 
+// STV_GC_KICK_x / STV_GC_EFBCUENTA_x (exploracion): debug.stv.gc.kick = N dibujos entre envios del bufer de comandos
+// (0 = como Dolphin); g_stv_dibujo cuenta los dibujos del cuadro (la cronologia de las copias del EFB la usa).
+u32 g_stv_kick = 0;
+std::atomic<u32> g_stv_dibujo{0};
+void StvEfbFinCuadro();  // TextureCacheBase.cpp
+
 void VertexManagerBase::OnDraw()
 {
   m_draw_counter++;
+  g_stv_dibujo.store(m_draw_counter, std::memory_order_relaxed);
+
+  if (g_stv_kick != 0 && m_allow_background_execution && (m_draw_counter % g_stv_kick) == 0)
+  {
+    g_gfx->Flush();
+    m_unflushed_efb_copy = false;
+    m_last_efb_copy_draw_counter = m_draw_counter;
+    return;
+  }
 
   // If the last efb copy was too close to the one before it, don't forget about it until the next
   // efb copy happens (which might not be for a long time)
@@ -996,7 +1011,9 @@ void VertexManagerBase::OnEFBCopyToRAM()
 
 void VertexManagerBase::OnEndFrame()
 {
+  StvEfbFinCuadro();
   m_draw_counter = 0;
+  g_stv_dibujo.store(0, std::memory_order_relaxed);
   m_last_efb_copy_draw_counter = 0;
   m_scheduled_command_buffer_kicks.clear();
 
