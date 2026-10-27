@@ -476,6 +476,22 @@ protected:
     u32 dc;
   };
   std::vector<STVTalon> m_stv_talones;
+  // STV_GC_CONVTALON_x (bit 262144): el resto del chequeo de una conversion simple -> doble (ceros y camino exacto) va a
+  // un talon al final del bloque; en linea queda el chequeo rapido con la rama invertida y la conversion.
+  struct STVConvTalon
+  {
+    Arm64Gen::FixupBranch rama;
+    Arm64Gen::ARM64Reg dest;
+    Arm64Gen::ARM64Reg src;
+    Arm64Gen::ARM64Reg scratch;
+    BitSet32 gpr_saved;
+    bool par;
+    const u8* vuelta;
+  };
+  std::vector<STVConvTalon> m_stv_conv_talones;
+  bool m_stv_conv_cerrado = false;
+  bool STVConvTalonPosible() const;
+  void STVEmitirConvTalones();
   void STVEtiqueta(u32 indice);
   void STVRestarDowncount(u32 ciclos);
   // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del

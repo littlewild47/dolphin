@@ -1562,6 +1562,8 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   m_stv_saltos.clear();  // STV_GC_SALTOINT_x
   m_stv_base_guest = {-1, -1};  // STV_GC_BASE_x
   m_stv_talones.clear();  // STV_GC_TALON_x
+  m_stv_conv_talones.clear();  // STV_GC_CONVTALON_x
+  m_stv_conv_cerrado = false;
 
   b->normalEntry = GetWritableCodePtr();
   // STV_GC_AUDITA_x
@@ -1969,6 +1971,8 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     js.fifoBytesSinceCheck = fb;
   }
   m_stv_talones.clear();
+
+  STVEmitirConvTalones();
 
   // STV_GC_AUDITA_x: lo que se emite despues de la ultima instruccion (vaciado y salida de un bloque cortado).
   if (stv_aud && !stv_aud->empty())

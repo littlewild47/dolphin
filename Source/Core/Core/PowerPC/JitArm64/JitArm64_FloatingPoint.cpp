@@ -884,6 +884,20 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
   // Do we know that the input isn't NaN, and that the input isn't denormal or FPCR.FZ is not set?
   // (This check unfortunately also catches zeroes)
 
+  // STV_GC_CONVTALON_x: en linea, FABS + FCMP + B.LE al talon + FCVT; el talon hace el chequeo de ceros y el camino
+  // exacto y vuelve detras del FCVT.
+  if (scratch_reg != ARM64Reg::INVALID_REG && switch_to_farcode && STVConvTalonPosible())
+  {
+    m_float_emit.FABS(EncodeRegToSingle(scratch_reg), EncodeRegToSingle(src_reg));
+    m_float_emit.FCMP(EncodeRegToSingle(scratch_reg));
+    FixupBranch lento = B(CCFlags::CC_LE);
+    m_float_emit.FCVT(64, 32, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
+    m_stv_conv_talones.push_back({lento, dest_reg, src_reg, scratch_reg,
+                                  gpr.GetCallerSavedUsed() & BitSet32{0, 1, 2, 3, 4, 30}, false,
+                                  GetCodePtr()});
+    return;
+  }
+
   FixupBranch fast;
   std::optional<FixupBranch> stv_cerca;
   if (scratch_reg != ARM64Reg::INVALID_REG)
@@ -974,6 +988,23 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
 
   // Do we know that neither input is NaN, and that neither input is denormal or FPCR.FZ is not set?
   // (This check unfortunately also catches zeroes)
+
+  // STV_GC_CONVTALON_x: en linea, el chequeo rapido de abajo con B.VC al talon + FCVTL; el talon hace el chequeo de
+  // ceros y el camino exacto y vuelve detras del FCVTL.
+  if (scratch_reg != ARM64Reg::INVALID_REG && switch_to_farcode && STVConvTalonPosible())
+  {
+    m_float_emit.MOVI(64, EncodeRegToDouble(scratch_reg), 0);
+    m_float_emit.FACGT(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(src_reg),
+                       EncodeRegToDouble(scratch_reg));
+    m_float_emit.INS(8, EncodeRegToDouble(scratch_reg), 7, EncodeRegToDouble(scratch_reg), 0);
+    m_float_emit.FCMP(EncodeRegToDouble(scratch_reg));
+    FixupBranch lento = B(CCFlags::CC_VC);
+    m_float_emit.FCVTL(64, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
+    m_stv_conv_talones.push_back({lento, dest_reg, src_reg, scratch_reg,
+                                  gpr.GetCallerSavedUsed() & BitSet32{0, 1, 2, 3, 4, 30}, true,
+                                  GetCodePtr()});
+    return;
+  }
 
   FixupBranch fast;
   std::optional<FixupBranch> stv_cerca;
@@ -1077,4 +1108,63 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
 bool JitArm64::IsFPRStoreSafe(size_t guest_reg) const
 {
   return js.fpr_is_store_safe[guest_reg];
+}
+
+// STV_GC_CONVTALON_x
+bool JitArm64::STVConvTalonPosible() const
+{
+  return (m_stv_volatil & 262144) && m_stv_cero && m_stv_cero_cerca && !m_stv_conv_cerrado;
+}
+
+// STV_GC_CONVTALON_x: al final del bloque (codigo cercano, despues de las salidas). Se llega por la rama del sitio con
+// los registros y las banderas del sitio; se vuelve detras de la conversion.
+void JitArm64::STVEmitirConvTalones()
+{
+  m_stv_conv_cerrado = true;
+  for (const STVConvTalon& t : m_stv_conv_talones)
+  {
+    SetJumpTarget(t.rama);
+    if (t.par)
+    {
+      const ARM64Reg x = EncodeRegToDouble(t.scratch);
+      m_float_emit.SHL(32, x, EncodeRegToDouble(t.src), 1);
+      m_float_emit.CMEQ(32, x, x);
+      m_float_emit.BIC(32, x, 0xC0, 24);
+      m_float_emit.ORR(x, x, EncodeRegToDouble(t.src));
+      m_float_emit.FABS(32, x, x);
+      m_float_emit.FCMGT(32, x, x);
+      m_float_emit.INS(8, x, 7, x, 0);
+      m_float_emit.FCMP(x);
+      FixupBranch cero = B(CCFlags::CC_VS);
+      ABI_PushRegisters(t.gpr_saved);
+      m_float_emit.FMOV(ARM64Reg::W0, EncodeRegToSingle(t.src));
+      BL(cstd);
+      m_float_emit.UMOV(32, ARM64Reg::W0, t.src, 1);
+      m_float_emit.FMOV(EncodeRegToDouble(t.dest), ARM64Reg::X1);
+      BL(cstd);
+      m_float_emit.INS(64, t.dest, 1, ARM64Reg::X1);
+      ABI_PopRegisters(t.gpr_saved);
+      B(t.vuelta);
+      SetJumpTarget(cero);
+      m_float_emit.FCVTL(64, EncodeRegToDouble(t.dest), EncodeRegToDouble(t.src));
+      B(t.vuelta);
+    }
+    else
+    {
+      m_float_emit.SHL(32, EncodeRegToDouble(t.scratch), EncodeRegToDouble(t.src), 1);
+      m_float_emit.CMEQ(32, EncodeRegToDouble(t.scratch), EncodeRegToDouble(t.scratch));
+      m_float_emit.FCMP(EncodeRegToSingle(t.scratch), EncodeRegToSingle(t.scratch));
+      FixupBranch cero = B(CCFlags::CC_VS);
+      ABI_PushRegisters(t.gpr_saved);
+      m_float_emit.FMOV(ARM64Reg::W0, EncodeRegToSingle(t.src));
+      BL(cstd);
+      m_float_emit.FMOV(EncodeRegToDouble(t.dest), ARM64Reg::X1);
+      ABI_PopRegisters(t.gpr_saved);
+      B(t.vuelta);
+      SetJumpTarget(cero);
+      m_float_emit.FCVT(64, 32, EncodeRegToDouble(t.dest), EncodeRegToDouble(t.src));
+      B(t.vuelta);
+    }
+  }
+  m_stv_conv_talones.clear();
 }
