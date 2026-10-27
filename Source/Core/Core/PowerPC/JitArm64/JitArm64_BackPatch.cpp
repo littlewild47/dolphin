@@ -258,6 +258,11 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     }
 
     const ARM64Reg temp_gpr = ARM64Reg::W1;
+    // STV_GC_DIRUXTW_x: una direccion de 32 bits es el registro del invitado (ver SafeLoadToReg); si no, W1/W2 de
+    // siempre.
+    const ARM64Reg stv_dir_lenta = !Is64Bit(addr) ?
+                                       addr :
+                                       ((flags & BackPatchInfo::FLAG_STORE) ? ARM64Reg::W2 : ARM64Reg::W1);
     const int temp_gpr_index = DecodeReg(temp_gpr);
     const ARM64Reg temp_fpr = fprs_to_push[0] ? ARM64Reg::INVALID_REG : ARM64Reg::Q0;
 
@@ -310,21 +315,21 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
       if (access_size == 64)
       {
         ABI_CallFunction(reverse ? &PowerPC::WriteU64SwapFromJit : &PowerPC::WriteFromJit<u64>,
-                         &m_mmu, src_reg, ARM64Reg::W2);
+                         &m_mmu, src_reg, stv_dir_lenta);
       }
       else if (access_size == 32)
       {
         ABI_CallFunction(reverse ? &PowerPC::WriteU32SwapFromJit : &PowerPC::WriteFromJit<u32>,
-                         &m_mmu, src_reg, ARM64Reg::W2);
+                         &m_mmu, src_reg, stv_dir_lenta);
       }
       else if (access_size == 16)
       {
         ABI_CallFunction(reverse ? &PowerPC::WriteU16SwapFromJit : &PowerPC::WriteFromJit<u16>,
-                         &m_mmu, src_reg, ARM64Reg::W2);
+                         &m_mmu, src_reg, stv_dir_lenta);
       }
       else
       {
-        ABI_CallFunction(&PowerPC::WriteFromJit<u8>, &m_mmu, src_reg, ARM64Reg::W2);
+        ABI_CallFunction(&PowerPC::WriteFromJit<u8>, &m_mmu, src_reg, stv_dir_lenta);
       }
     }
     else if (flags & BackPatchInfo::FLAG_ZERO_256)
@@ -334,13 +339,13 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     else
     {
       if (access_size == 64)
-        ABI_CallFunction(&PowerPC::ReadFromJit<u64>, &m_mmu, ARM64Reg::W1);
+        ABI_CallFunction(&PowerPC::ReadFromJit<u64>, &m_mmu, stv_dir_lenta);
       else if (access_size == 32)
-        ABI_CallFunction(&PowerPC::ReadFromJit<u32>, &m_mmu, ARM64Reg::W1);
+        ABI_CallFunction(&PowerPC::ReadFromJit<u32>, &m_mmu, stv_dir_lenta);
       else if (access_size == 16)
-        ABI_CallFunction(&PowerPC::ReadFromJit<u16>, &m_mmu, ARM64Reg::W1);
+        ABI_CallFunction(&PowerPC::ReadFromJit<u16>, &m_mmu, stv_dir_lenta);
       else
-        ABI_CallFunction(&PowerPC::ReadFromJit<u8>, &m_mmu, ARM64Reg::W1);
+        ABI_CallFunction(&PowerPC::ReadFromJit<u8>, &m_mmu, stv_dir_lenta);
     }
 
     m_float_emit.ABI_PopRegisters(fprs_to_push, ARM64Reg::X30);
