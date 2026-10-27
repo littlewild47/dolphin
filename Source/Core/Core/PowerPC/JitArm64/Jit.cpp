@@ -1006,6 +1006,32 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
   // Check if {PPC_PC, feature_flags} matches the current state, then RET to ARM_PC.
   LDP(IndexType::Post, ARM64Reg::X2, ARM64Reg::X1, ARM64Reg::SP, 16);
   const u64 feature_flags = m_ppc_state.feature_flags;
+  // STV_GC_BLRCORTO_x (bit 32 de la valvula): la comparacion va por EOR + CBNZ (no toca las banderas), asi el SUBS del
+  // downcount es uno solo y el camino de fallo (ResetStack + despachador) pasa al codigo lejano. X3 esta libre (todo
+  // vaciado) y DoDownCount puede pisar X0/X1.
+  if (m_stv_volatil & 32)
+  {
+    if (feature_flags == 0)
+    {
+      EOR(ARM64Reg::X3, ARM64Reg::X1, EncodeRegTo64(DISPATCHER_PC));
+    }
+    else
+    {
+      ORRI2R(ARM64Reg::X0, EncodeRegTo64(DISPATCHER_PC), feature_flags << 32, ARM64Reg::X0);
+      EOR(ARM64Reg::X3, ARM64Reg::X1, ARM64Reg::X0);
+    }
+    DoDownCount();
+    FixupBranch fallo = CBNZ(ARM64Reg::X3);
+    RET(ARM64Reg::X2);
+    SetJumpTarget(fallo);
+    FixupBranch lejos = B();
+    SwitchToFarCode();
+    SetJumpTarget(lejos);
+    ResetStack();
+    B(dispatcher);
+    SwitchToNearCode();
+    return;
+  }
   if (feature_flags == 0)
   {
     CMP(ARM64Reg::X1, EncodeRegTo64(DISPATCHER_PC));
