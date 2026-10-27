@@ -847,6 +847,9 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     if (exit_address_after_return_reg == ARM64Reg::INVALID_REG)
     {
       MOVI2R(ARM64Reg::X1, feature_flags << 32 | exit_address_after_return);
+      // STV_GC_LLAMADA_x: los 32 bits bajos son el LR de bcctrl.
+      if (m_stv_lr_en_salida)
+        STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
     else if (feature_flags == 0)
     {
@@ -1028,6 +1031,8 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
     SwitchToFarCode();
     SetJumpTarget(lejos);
     ResetStack();
+    if (m_stv_blr_sin_and)
+      AND(DISPATCHER_PC, DISPATCHER_PC, LogicalImm(~0x3, GPRSize::B32));
     B(dispatcher);
     SwitchToNearCode();
     return;
@@ -1052,6 +1057,10 @@ void JitArm64::WriteBLRExit(Arm64Gen::ARM64Reg dest)
   ResetStack();
 
   DoDownCount();
+
+  // STV_GC_LLAMADA_x: el destino llego sin enmascarar (ver bclrx).
+  if (m_stv_blr_sin_and)
+    AND(DISPATCHER_PC, DISPATCHER_PC, LogicalImm(~0x3, GPRSize::B32));
 
   B(dispatcher);
 }

@@ -458,6 +458,9 @@ protected:
   // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del
   // grafo de bloques tiene una arista a una direccion <= la de su bloque de origen (o pasa por el despachador), y ahi
   // se sigue chequeando; el downcount se descuenta igual en todas.
+  // STV_GC_LLAMADA_x
+  bool m_stv_lr_en_salida = false;
+  bool m_stv_blr_sin_and = false;
   bool STVCorto(u32 destino) const { return (m_stv_volatil & 16) && destino > js.blockStart; }
 
   void reg_imm(u32 d, u32 a, u32 value,

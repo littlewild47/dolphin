@@ -376,6 +376,8 @@ public:
 
   // Returns whether a register is set as an immediate. Only valid for guest GPRs.
   bool IsImm(size_t preg) const;
+  // STV_GC_LLAMADA_x
+  bool STVEnHost(size_t preg) const { return GetGuestGPROpArg(preg).IsInHostRegister(); }
 
   // Gets the immediate that a register is set to. Only valid for guest GPRs.
   u32 GetImm(size_t preg) const;

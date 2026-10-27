@@ -292,6 +292,42 @@ void JitArm64::bcctrx(UGeckoInstruction inst)
 
   // BO_2 == 1z1zz -> b always
 
+  // STV_GC_LLAMADA_x (bit 128 de la valvula): el destino va directo a DISPATCHER_PC; tras un mtctr se toma del registro
+  // de origen (sin recargar CTR recien guardado); en bcctrl el LR sale de la misma constante que se empuja en la pila
+  // de BLR (STR W1) en vez de armarla dos veces.
+  if ((m_stv_volatil & 128) && !IsBranchWatchEnabled() && (!inst.LK_3 || m_enable_blr_optimization))
+  {
+    ARM64Reg origen = ARM64Reg::INVALID_REG;
+    if (js.op != m_code_buffer.data())
+    {
+      const PPCAnalyst::CodeOp& prev = *(js.op - 1);
+      if (!prev.skip && prev.inst.OPCD == 31 && prev.inst.SUBOP10 == 467 &&
+          ((prev.inst.SPRU << 5) | prev.inst.SPRL) == SPR_CTR &&
+          gpr.STVEnHost(prev.inst.RS))
+      {
+        origen = gpr.R(prev.inst.RS);
+      }
+    }
+    // El destino se calcula ANTES de vaciar (un vaciado en pares puede tomar un registro nuevo para un inmediato y pisar
+    // el de origen ya liberado); WD suele ser W26 (primero en el orden), y entonces WriteExit no copia.
+    auto WD = gpr.GetScopedReg();
+    if (origen != ARM64Reg::INVALID_REG)
+    {
+      AND(WD, origen, LogicalImm(~0x3, GPRSize::B32));
+    }
+    else
+    {
+      LDR(IndexType::Unsigned, WD, PPC_REG, PPCSTATE_OFF_SPR(SPR_CTR));
+      AND(WD, WD, LogicalImm(~0x3, GPRSize::B32));
+    }
+    gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
+    fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
+    m_stv_lr_en_salida = inst.LK_3;
+    WriteExit(WD, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+    m_stv_lr_en_salida = false;
+    return;
+  }
+
   // NPC = CTR & 0xfffffffc;
   gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
   fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
@@ -355,7 +391,12 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     }
 
     LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
-    AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
+    // STV_GC_LLAMADA_x: con la pila de BLR, el AND va solo al camino de fallo (una direccion de retorno empujada siempre
+    // esta alineada: un LR desalineado falla la comparacion).
+    const bool stv_sin_and = (m_stv_volatil & 128) && m_enable_blr_optimization && !IsBranchWatchEnabled() &&
+                             !js.op->branchIsIdleLoop;
+    if (!stv_sin_and)
+      AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
 
     if (inst.LK)
     {
@@ -403,7 +444,9 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     }
     else
     {
+      m_stv_blr_sin_and = stv_sin_and;
       WriteBLRExit(WA);
+      m_stv_blr_sin_and = false;
     }
 
     if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)
