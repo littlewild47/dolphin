@@ -74,6 +74,9 @@ void JitBaseBlockCache::Shutdown()
 
 // This clears the JIT cache. It's called from JitCache.cpp when the JIT cache
 // is full and when saving and loading states.
+// STV_GC_JITCUENTA_x (instrumento): invalidaciones que destruyen bloques (y sus bytes) y compilaciones.
+u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
+
 void JitBaseBlockCache::Clear()
 {
   ++g_stv_clear_n;
@@ -265,9 +268,6 @@ const u8* JitBaseBlockCache::Dispatch()
 
   return block->normalEntry;
 }
-
-// STV_GC_JITCUENTA_x (instrumento): invalidaciones que destruyen bloques (y sus bytes) y compilaciones.
-u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
 
 void JitBaseBlockCache::InvalidateICacheLine(u32 address)
 {
