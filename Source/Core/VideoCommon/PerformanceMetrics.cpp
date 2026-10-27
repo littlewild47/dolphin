@@ -246,7 +246,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       char vo[PROP_VALUE_MAX] = {};
       static int stv_vo_prev = -1;
       if (__system_property_get("debug.stv.gc.volatil", vo) > 0 && vo[0] >= '0' && vo[0] <= '9' &&
-          atoi(vo) <= 131071)
+          atoi(vo) <= 262143)
       {
         const int n = atoi(vo);
         if (n != stv_vo_prev)
