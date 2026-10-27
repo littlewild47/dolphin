@@ -3,6 +3,9 @@
 
 #include "VideoBackends/Vulkan/CommandBufferManager.h"
 
+#include <atomic>
+#include <chrono>
+
 #include <array>
 #include <cstdint>
 
@@ -245,15 +248,30 @@ bool CommandBufferManager::CreateSubmitThread()
   return true;
 }
 
+// STV_GC_PRESENTA_x (instrumento): microsegundos por segundo que el hilo de video espera al grabador y al hilo de envio
+// en BindBackbuffer, que tarda vkAcquireNextImageKHR, y que tarda vkQueuePresentKHR en el hilo de envio (y el maximo).
+std::atomic<u64> g_stv_us_vaciar{0}, g_stv_us_envio{0}, g_stv_us_acq{0}, g_stv_us_pres{0}, g_stv_us_pres_max{0},
+    g_stv_n_pres{0};
+static u64 STVAhoraUs()
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 void CommandBufferManager::WaitForWorkerThreadIdle()
 {
   // STV_GC_GRABADOR_v1: primero que el grabador termine lo encolado (incluidos los envios que empuja al hilo de
   // envio); recien entonces el hilo de envio puede quedar ocioso de verdad.
+  const u64 t0 = STVAhoraUs();
   Grabador::Vaciar();
+  const u64 t1 = STVAhoraUs();
+  g_stv_us_vaciar.fetch_add(t1 - t0, std::memory_order_relaxed);
   if (!m_use_threaded_submission)
     return;
 
   m_submit_thread.WaitForCompletion();
+  g_stv_us_envio.fetch_add(STVAhoraUs() - t1, std::memory_order_relaxed);
 }
 
 void CommandBufferManager::WaitForFenceCounter(u64 fence_counter)
@@ -477,7 +495,13 @@ void CommandBufferManager::SubmitCommandBuffer(u32 command_buffer_index,
                                      &present_image_index,
                                      nullptr};
 
+    const u64 tp0 = STVAhoraUs();
     m_last_present_result = vkQueuePresentKHR(g_vulkan_context->GetPresentQueue(), &present_info);
+    const u64 dp = STVAhoraUs() - tp0;
+    g_stv_us_pres.fetch_add(dp, std::memory_order_relaxed);
+    g_stv_n_pres.fetch_add(1, std::memory_order_relaxed);
+    if (dp > g_stv_us_pres_max.load(std::memory_order_relaxed))
+      g_stv_us_pres_max.store(dp, std::memory_order_relaxed);
     if (m_last_present_result != VK_SUCCESS)
     {
       // VK_ERROR_OUT_OF_DATE_KHR is not fatal, just means we need to recreate our swap chain.

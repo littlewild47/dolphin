@@ -3,6 +3,9 @@
 
 #include "VideoBackends/Vulkan/VKGfx.h"
 
+#include <atomic>
+#include <chrono>
+
 #include <cstddef>
 #include <cstdio>
 #include <utility>
@@ -236,8 +239,14 @@ bool VKGfx::BindBackbuffer(const ClearColor& clear_color)
   }
 
   const bool present_fail = g_command_buffer_mgr->CheckLastPresentFail();
+  extern std::atomic<u64> g_stv_us_acq;
+  const auto stv_a0 = std::chrono::steady_clock::now();
   VkResult res = present_fail ? g_command_buffer_mgr->GetLastPresentResult() :
                                 m_swap_chain->AcquireNextImage();
+  g_stv_us_acq.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now() - stv_a0)
+                             .count(),
+                         std::memory_order_relaxed);
 
   if (res == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT &&
       !m_swap_chain->GetCurrentFullscreenState())

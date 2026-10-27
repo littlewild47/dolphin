@@ -18,6 +18,10 @@
 #include "Core/HW/SystemTimers.h"
 
 extern u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
+namespace Vulkan
+{
+extern std::atomic<u64> g_stv_us_vaciar, g_stv_us_envio, g_stv_us_acq, g_stv_us_pres, g_stv_us_pres_max, g_stv_n_pres;
+}
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -339,6 +343,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_PRESENTA_x: esperas de la presentacion por segundo (ms) y presentaciones.
+    {
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "presenta: vaciar=%llu ms envio=%llu ms acquire=%llu ms present=%llu ms (max %llu) n=%llu",
+                            (unsigned long long)(Vulkan::g_stv_us_vaciar.exchange(0) / 1000),
+                            (unsigned long long)(Vulkan::g_stv_us_envio.exchange(0) / 1000),
+                            (unsigned long long)(Vulkan::g_stv_us_acq.exchange(0) / 1000),
+                            (unsigned long long)(Vulkan::g_stv_us_pres.exchange(0) / 1000),
+                            (unsigned long long)(Vulkan::g_stv_us_pres_max.exchange(0) / 1000),
+                            (unsigned long long)Vulkan::g_stv_n_pres.exchange(0));
     }
     // STV_GC_JITCUENTA_x: compilaciones, invalidaciones (y bytes) y vaciados de la cache del JIT por segundo.
     {
