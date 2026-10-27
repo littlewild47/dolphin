@@ -68,7 +68,7 @@ namespace CommandProcessor
 extern bool g_stv_fifo_lote;  // STV_GC_FIFO3_v1 (VideoCommon/CommandProcessor.cpp)
 }
 
-const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 31> JitBase::JIT_SETTINGS{{
+const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 32> JitBase::JIT_SETTINGS{{
     {&JitBase::bJITOff, &Config::MAIN_DEBUG_JIT_OFF},
     {&JitBase::bJITLoadStoreOff, &Config::MAIN_DEBUG_JIT_LOAD_STORE_OFF},
     {&JitBase::bJITLoadStorelXzOff, &Config::MAIN_DEBUG_JIT_LOAD_STORE_LXZ_OFF},
