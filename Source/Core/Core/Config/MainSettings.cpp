@@ -60,6 +60,8 @@ const Info<bool> MAIN_STV_FIFO_REG{{System::Main, "Core", "STVFifoReg"}, true};
 const Info<bool> MAIN_STV_CERO{{System::Main, "Core", "STVCeroRapido"}, true};
 // STV_GC_CEROCERCA_x: ver JitArm64_FloatingPoint.cpp.
 const Info<bool> MAIN_STV_CERO_CERCA{{System::Main, "Core", "STVCeroCerca"}, false};
+// STV_GC_REVDIF_x: ver JitArm64_RegCache.h.
+const Info<bool> MAIN_STV_REV_DIFERIDO{{System::Main, "Core", "STVRevDiferido"}, false};
 // STV_GC_FIFORUT_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO desde las rutinas cuantizadas).
 const Info<bool> MAIN_STV_FIFO_RUT{{System::Main, "Core", "STVFifoRutina"}, true};
 // STV_GC_GQR_v1: ver JitArm64_LoadStorePaired.cpp (psq_l con el GQR constante en el bloque, en linea).

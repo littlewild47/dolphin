@@ -75,6 +75,8 @@ extern const Info<bool> MAIN_STV_FIFO_REG;
 extern const Info<bool> MAIN_STV_CERO;
 // STV_GC_CEROCERCA_x: el chequeo de ceros de CERO va en el codigo cercano, detras del chequeo rapido de Dolphin.
 extern const Info<bool> MAIN_STV_CERO_CERCA;
+// STV_GC_REVDIF_x: el intercambio de bytes de lwz se emite al primer uso del registro (ver JitArm64_RegCache).
+extern const Info<bool> MAIN_STV_REV_DIFERIDO;
 // STV_GC_FIFORUT_v1: las rutinas de psq_st cuantizado escriben directo en el gather pipe si la direccion es la del FIFO.
 extern const Info<bool> MAIN_STV_FIFO_RUT;
 // STV_GC_GQR_v1: un GQR que el bloque usa y no cambia se fija al compilar (con guardia al entrar), como en Jit64.

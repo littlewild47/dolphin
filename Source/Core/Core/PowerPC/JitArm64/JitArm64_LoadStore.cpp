@@ -137,6 +137,13 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
   if (is_immediate)
     mmio_address = m_mmu.IsOptimizableMMIOAccess(imm_addr, access_size);
 
+  // STV_GC_REVDIF_x: un lwz comun se emite como lwbrx (sin REV en el camino rapido, REV en el lento) y el REV que
+  // falta queda pendiente en la cache de registros hasta el primer uso. No en MMIO (su lectura ya da el valor).
+  const bool stv_rev_dif = m_stv_rev_dif && !mmio_address &&
+                           flags == (BackPatchInfo::FLAG_LOAD | BackPatchInfo::FLAG_SIZE_32);
+  if (stv_rev_dif)
+    flags |= BackPatchInfo::FLAG_REVERSE;
+
   if (is_immediate && m_mmu.IsOptimizableRAMAddress(imm_addr, access_size))
   {
     set_addr_reg_if_needed();
@@ -160,6 +167,8 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
 
   gpr.BindToRegister(dest, false, true);
   ASSERT(dest_reg == gpr.R(dest));
+  if (stv_rev_dif)
+    gpr.STVRevMarcar(dest);
 
   if (update && !early_update)
   {

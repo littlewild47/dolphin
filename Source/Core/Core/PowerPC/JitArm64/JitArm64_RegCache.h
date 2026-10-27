@@ -132,7 +132,11 @@ public:
     m_reg = reg;
     m_fpr_type = format;
     m_in_host_register = true;
+    m_stv_rev = false;
   }
+  // STV_GC_REVDIF_x: el registro del host tiene el valor con los bytes invertidos (falta un REV32).
+  bool STVRev() const { return m_stv_rev; }
+  void STVSetRev(bool rev) { m_stv_rev = rev; }
   void Discard()
   {
     // Invalidate any previous information
@@ -140,6 +144,7 @@ public:
     m_fpr_type = RegType::Register;
     m_in_ppc_state = false;
     m_in_host_register = false;
+    m_stv_rev = false;
 
     // Arbitrarily large value that won't roll over on a lot of increments
     m_last_used = 0xFFFF;
@@ -151,6 +156,7 @@ public:
     m_fpr_type = RegType::Register;
     m_in_ppc_state = true;
     m_in_host_register = false;
+    m_stv_rev = false;
 
     // Arbitrarily large value that won't roll over on a lot of increments
     m_last_used = 0xFFFF;
@@ -171,6 +177,7 @@ private:
 
   bool m_in_ppc_state = true;
   bool m_in_host_register = false;
+  bool m_stv_rev = false;  // STV_GC_REVDIF_x
 };
 
 class HostReg
@@ -425,6 +432,16 @@ public:
   // STV_GC_JITGF_v1: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
   // cache vacia (Init y ClearCache, despues de RefreshConfig).
   void STVGfConfigurar(int modo);
+
+  // STV_GC_REVDIF_x: un lwz deja el valor crudo (bytes de la memoria del juego, como lwbrx) y el REV32 se emite al
+  // primer uso. DoJit resuelve al empezar cada instruccion los que esta lee, y todos antes de cualquier instruccion
+  // que no sea entera ni carga/guardado simple (ramas, salidas, llamadas): entre la carga y el REV solo quedan
+  // instrucciones lineales, y dos cargas seguidas salen juntas (el A55, en orden, se frenaba en el REV de cada una).
+  // Un vaciado completo resuelve en el lugar; MaintainState (caminos de salida) guarda REV/STR/REV sin tocar la
+  // cache; Undirty deja el pendiente sucio (se guarda despues). Pisarlo o descartarlo borra la marca.
+  void STVRevMarcar(size_t preg) { m_guest_registers[GUEST_GPR_OFFSET + preg].STVSetRev(true); }
+  void STVRevResolver(size_t preg);
+  void STVRevResolverTodo();
   int STVGfModo() const { return m_stv_gf; }
   bool STVEsFijo(size_t index) const override
   {

@@ -1370,6 +1370,29 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     js.downcountAmount += opinfo->num_cycles;
     js.isLastInstruction = i == (code_block.m_num_instructions - 1);
 
+    // STV_GC_REVDIF_x: lo que esta instruccion lee sale con los bytes en orden; antes de cualquier instruccion que no
+    // sea entera ni carga/guardado simple (ramas, salidas, llamadas, SPR, punto flotante), todo.
+    if (m_stv_rev_dif)
+    {
+      const auto tipo = opinfo->type;
+      const bool simple =
+          (tipo == ::OpType::Integer || tipo == ::OpType::Load || tipo == ::OpType::Store) &&
+          !(opinfo->flags & FL_ENDBLOCK) && op.inst.OPCD != 46 && op.inst.OPCD != 47 &&
+          !(op.inst.OPCD == 31 && (op.inst.SUBOP10 == 20 || op.inst.SUBOP10 == 150 ||
+                                   op.inst.SUBOP10 == 533 || op.inst.SUBOP10 == 597 ||
+                                   op.inst.SUBOP10 == 661 || op.inst.SUBOP10 == 725)) &&
+          !op.skip && !js.isLastInstruction;
+      if (simple)
+      {
+        for (int r : op.regsIn)
+          gpr.STVRevResolver(r);
+      }
+      else
+      {
+        gpr.STVRevResolverTodo();
+      }
+    }
+
     // Skip calling UpdateLastUsed for lmw/stmw - it usually hurts more than it helps
     if (op.inst.OPCD != 46 && op.inst.OPCD != 47)
       gpr.UpdateLastUsed(op.regsIn | op.regsOut);

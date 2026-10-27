@@ -201,6 +201,14 @@ void Arm64GPRCache::STVFlushFijo(size_t index, FlushMode mode)
 
   if (reg.IsInHostRegister())
   {
+    // STV_GC_REVDIF_x: el fijo pasa entre bloques en su registro: tiene que salir con los bytes en orden. En
+    // MaintainState (solo caminos de salida, que no vuelven) el REV queda en ese camino y la marca sigue.
+    if (reg.STVRev())
+    {
+      m_emit->REV32(host_reg, host_reg);
+      if (mode != FlushMode::MaintainState)
+        reg.STVSetRev(false);
+    }
     if (m_stv_gf == 2 && !reg.IsInPPCState())
       m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, ppc_offset);
     if (mode != FlushMode::MaintainState)
@@ -267,6 +275,26 @@ Arm64GPRCache::GuestRegInfo Arm64GPRCache::GetGuestByIndex(size_t index)
   return GetGuestGPR(0);
 }
 
+// STV_GC_REVDIF_x
+void Arm64GPRCache::STVRevResolver(size_t preg)
+{
+  OpArg& reg = m_guest_registers[GUEST_GPR_OFFSET + preg];
+  if (!reg.STVRev())
+    return;
+  if (reg.IsInHostRegister())
+  {
+    const ARM64Reg host_reg = STVEsFijo(GUEST_GPR_OFFSET + preg) ? STVGfHost(preg) : reg.GetReg();
+    m_emit->REV32(host_reg, host_reg);
+  }
+  reg.STVSetRev(false);
+}
+
+void Arm64GPRCache::STVRevResolverTodo()
+{
+  for (size_t i = 0; i < GUEST_GPR_COUNT; ++i)
+    STVRevResolver(i);
+}
+
 void Arm64GPRCache::FlushRegister(size_t index, FlushMode mode, ARM64Reg tmp_reg)
 {
   // STV_GC_JITGF_v1
@@ -284,6 +312,24 @@ void Arm64GPRCache::FlushRegister(size_t index, FlushMode mode, ARM64Reg tmp_reg
   if (reg.IsInHostRegister())
   {
     ARM64Reg host_reg = reg.GetReg();
+    // STV_GC_REVDIF_x
+    if (reg.STVRev())
+    {
+      if (mode == FlushMode::MaintainState)
+      {
+        if (!reg.IsInPPCState())
+        {
+          m_emit->REV32(host_reg, host_reg);
+          m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, u32(guest_reg.ppc_offset));
+          m_emit->REV32(host_reg, host_reg);
+        }
+        return;
+      }
+      if (mode == FlushMode::Undirty)
+        return;
+      m_emit->REV32(host_reg, host_reg);
+      reg.STVSetRev(false);
+    }
     if (!reg.IsInPPCState())
       m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, u32(guest_reg.ppc_offset));
 
@@ -371,7 +417,7 @@ void Arm64GPRCache::FlushRegisters(BitSet32 regs, FlushMode mode, ARM64Reg tmp_r
       const bool reg1_zero = reg1_imm && GetImm(i) == 0;
       const bool reg2_zero = reg2_imm && GetImm(i + 1) == 0;
       const bool can_allocate_reg = mode != FlushMode::MaintainState;
-      if (!reg1.IsInPPCState() && !reg2.IsInPPCState() &&
+      if (!reg1.STVRev() && !reg2.STVRev() && !reg1.IsInPPCState() && !reg2.IsInPPCState() &&
           (reg1.IsInHostRegister() || (reg1_imm && (reg1_zero || can_allocate_reg))) &&
           (reg2.IsInHostRegister() || (reg2_imm && (reg2_zero || can_allocate_reg))))
       {
@@ -466,11 +512,22 @@ ARM64Reg Arm64GPRCache::BindForRead(size_t index)
         m_emit->MOVI2R(host_reg, GetImm(index - GUEST_GPR_OFFSET));
       reg.Load(host_reg);
     }
+    else if (reg.STVRev())  // STV_GC_REVDIF_x: red de seguridad
+    {
+      m_emit->REV32(host_reg, host_reg);
+      reg.STVSetRev(false);
+    }
     return host_reg;
   }
 
   if (reg.IsInHostRegister())
   {
+    // STV_GC_REVDIF_x: red de seguridad (DoJit ya resolvio lo que la instruccion lee).
+    if (reg.STVRev())
+    {
+      m_emit->REV32(reg.GetReg(), reg.GetReg());
+      reg.STVSetRev(false);
+    }
     return reg.GetReg();
   }
   else if (is_gpr && IsImm(index - GUEST_GPR_OFFSET))
@@ -512,6 +569,22 @@ void Arm64GPRCache::BindForWrite(size_t index, bool will_read, bool will_write)
   const bool is_gpr = IsIndexGPR(index);
 
   reg.ResetLastUsed();
+
+  // STV_GC_REVDIF_x: si se va a leer, el REV pendiente se emite; si se pisa (y no hay vuelta atras de memcheck), la
+  // marca se borra sin emitir nada.
+  if (reg.STVRev())
+  {
+    if (!will_read && (will_write || !m_jit->jo.memcheck))
+    {
+      reg.STVSetRev(false);
+    }
+    else if (reg.IsInHostRegister())
+    {
+      const ARM64Reg h = STVEsFijo(index) ? STVGfHost(index) : reg.GetReg();
+      m_emit->REV32(h, h);
+      reg.STVSetRev(false);
+    }
+  }
 
   // STV_GC_JITGF_v1: el GPR fijo se escribe en su registro. Nunca hace falta LDR: el valor ya esta ahi.
   if (STVEsFijo(index))
