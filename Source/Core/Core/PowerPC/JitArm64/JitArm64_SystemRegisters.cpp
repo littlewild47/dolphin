@@ -482,6 +482,10 @@ void JitArm64::mfspr(UGeckoInstruction inst)
           {
             js.downcountAmount++;
             js.skipInstructions = 2;
+            // El fin de instruccion usa los descartables de la PRIMERA: ahi n y t figuran muertos (se escriben antes de
+            // leerse) y se perderian; con r3/r4 no pasaba porque son fijos (el descarte los ignora).
+            js.op->gprDiscardable[n] = false;
+            js.op->gprDiscardable[t] = false;
             gpr.BindToRegister(t, false);
             if (thirdIndex == SPR_TL)
               MOV(gpr.R(t), Wresult);
