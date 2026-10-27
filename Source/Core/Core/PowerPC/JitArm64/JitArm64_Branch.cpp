@@ -324,7 +324,9 @@ void JitArm64::bcctrx(UGeckoInstruction inst)
     }
     // El destino se calcula ANTES de vaciar (un vaciado en pares puede tomar un registro nuevo para un inmediato y pisar
     // el de origen ya liberado); WD suele ser W26 (primero en el orden), y entonces WriteExit no copia.
-    auto WD = gpr.GetScopedReg();
+    auto WD_scoped = gpr.GetScopedReg();
+    // STV_GC_BASE2_x: idem, directo a DISPATCHER_PC (bcctr incondicional: fin de bloque).
+    const ARM64Reg WD = (m_stv_volatil & 81920) == 81920 ? DISPATCHER_PC : ARM64Reg(WD_scoped);
     if (origen != ARM64Reg::INVALID_REG)
     {
       AND(WD, origen, LogicalImm(~0x3, GPRSize::B32));
@@ -460,13 +462,17 @@ void JitArm64::bclrx(UGeckoInstruction inst)
           JumpIfCRFieldBit(inst.BI >> 2, 3 - (inst.BI & 3), !(inst.BO_2 & BO_BRANCH_IF_TRUE));
     }
 
-    LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+    // STV_GC_BASE2_x: con W26 fuera del pool, el destino va directo a DISPATCHER_PC (este es el camino que sale del
+    // bloque: pisar la segunda ranura de base no importa) y WriteBLRExit no copia.
+    const bool stv_dpc = (m_stv_volatil & 81920) == 81920 && !js.op->branchIsIdleLoop && !IsBranchWatchEnabled();
+    const ARM64Reg WL = stv_dpc ? DISPATCHER_PC : ARM64Reg(WA);
+    LDR(IndexType::Unsigned, WL, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     // STV_GC_LLAMADA_x: con la pila de BLR, el AND va solo al camino de fallo (una direccion de retorno empujada siempre
     // esta alineada: un LR desalineado falla la comparacion).
     const bool stv_sin_and = (m_stv_volatil & 128) && m_enable_blr_optimization && !IsBranchWatchEnabled() &&
                              !js.op->branchIsIdleLoop;
     if (!stv_sin_and)
-      AND(WA, WA, LogicalImm(~0x3, GPRSize::B32));
+      AND(WL, WL, LogicalImm(~0x3, GPRSize::B32));
 
     if (inst.LK)
     {
@@ -515,7 +521,7 @@ void JitArm64::bclrx(UGeckoInstruction inst)
     else
     {
       m_stv_blr_sin_and = stv_sin_and;
-      WriteBLRExit(WA);
+      WriteBLRExit(WL);
       m_stv_blr_sin_and = false;
     }
 
