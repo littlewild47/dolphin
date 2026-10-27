@@ -1095,12 +1095,13 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
 
 #ifdef __ANDROID__
   // STV_GC_VOLATIL_x (depuracion): el bloque de memset de la SDK.
-  if (stv_blr_final >= 0 && code[0].address <= 0x80003524 && code[block->m_num_instructions - 1].address >= 0x80003524)
+  if (code[0].address == 0x80347350)
   {
     for (u32 k = 0; k < block->m_num_instructions; k++)
-      __android_log_print(ANDROID_LOG_ERROR, "STVGC", "vol: %08x %08x fin=%d exc=%d skip=%d in=%08x out=%08x desc=%08x",
+      __android_log_print(ANDROID_LOG_ERROR, "STVGC", "vol: %08x %08x fin=%d exc=%d skip=%d fin_blr=%d fdesc=%08x fwr=%08x fww=%08x",
                           code[k].address, code[k].inst.hex, code[k].canEndBlock, code[k].canCauseException,
-                          code[k].skip, code[k].regsIn.m_val, code[k].regsOut.m_val, code[k].gprDiscardable.m_val);
+                          code[k].skip, stv_blr_final, code[k].fprDiscardable.m_val, code[k].fprWillBeRead.m_val,
+                          code[k].fprWillBeWritten.m_val);
   }
 #endif
   // Forward scan, for flags that need the other direction for calculation.
