@@ -250,7 +250,7 @@ bool CommandBufferManager::CreateSubmitThread()
 
 // STV_GC_PRESENTA_x (instrumento): microsegundos por segundo que el hilo de video espera al grabador y al hilo de envio
 // en BindBackbuffer, que tarda vkAcquireNextImageKHR, y que tarda vkQueuePresentKHR en el hilo de envio (y el maximo).
-std::atomic<u64> g_stv_us_vaciar{0}, g_stv_us_envio{0}, g_stv_us_acq{0}, g_stv_us_pres{0}, g_stv_us_pres_max{0},
+std::atomic<u64> g_stv_us_cmdbuf{0}, g_stv_us_vaciar{0}, g_stv_us_envio{0}, g_stv_us_acq{0}, g_stv_us_pres{0}, g_stv_us_pres_max{0},
     g_stv_n_pres{0};
 static u64 STVAhoraUs()
 {
@@ -295,6 +295,8 @@ void CommandBufferManager::WaitForFenceCounter(u64 fence_counter)
 
 void CommandBufferManager::WaitForCommandBufferCompletion(u32 index)
 {
+  const u64 stv_t0 = STVAhoraUs();
+  struct STVFin { u64 t; ~STVFin() { g_stv_us_cmdbuf.fetch_add(STVAhoraUs() - t, std::memory_order_relaxed); } } stv_fin{stv_t0};
   CmdBufferResources& resources = m_command_buffers[index];
 
   // Ensure this command buffer has been submitted.

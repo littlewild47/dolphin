@@ -42,6 +42,7 @@ namespace CoreTiming
 {
 // STV_GC_SALTO_v1: lazos ociosos con espera al video y sin ella (las metricas los leen por segundo).
 extern std::atomic<u64> g_stv_esperas, g_stv_saltos;
+extern std::atomic<u64> g_stv_us_espera_video;
 
 // These really shouldn't be global, but jit64 accesses them directly
 struct Globals

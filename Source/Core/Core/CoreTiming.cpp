@@ -3,6 +3,8 @@
 
 #include "Core/CoreTiming.h"
 
+#include <chrono>
+
 #include <algorithm>
 #include <mutex>
 #include <string>
@@ -36,6 +38,7 @@
 namespace CoreTiming
 {
 std::atomic<u64> g_stv_esperas{0}, g_stv_saltos{0};
+std::atomic<u64> g_stv_us_espera_video{0};  // STV_GC_PRESENTA_x (instrumento)
 
 static constexpr int MAX_SLICE_LENGTH = 20000;
 
@@ -602,7 +605,12 @@ void CoreTimingManager::Idle()
       // When the FIFO is processing data we must not advance because in this way
       // the VI will be desynchronized. So, We are waiting until the FIFO finish and
       // while we process only the events required by the FIFO.
+      const auto stv_t0 = std::chrono::steady_clock::now();
       m_system.GetFifo().FlushGpu();
+      g_stv_us_espera_video.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now() - stv_t0)
+                                          .count(),
+                                      std::memory_order_relaxed);
       g_stv_esperas.fetch_add(1, std::memory_order_relaxed);
     }
   }

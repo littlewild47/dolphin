@@ -20,7 +20,7 @@
 extern u64 g_stv_inval_n, g_stv_inval_b, g_stv_jit_n, g_stv_clear_n;
 namespace Vulkan
 {
-extern std::atomic<u64> g_stv_us_vaciar, g_stv_us_envio, g_stv_us_acq, g_stv_us_pres, g_stv_us_pres_max, g_stv_n_pres;
+extern std::atomic<u64> g_stv_us_cmdbuf, g_stv_us_vaciar, g_stv_us_envio, g_stv_us_acq, g_stv_us_pres, g_stv_us_pres_max, g_stv_n_pres;
 }
 
 #ifdef __ANDROID__
@@ -349,7 +349,10 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
         __android_log_print(ANDROID_LOG_INFO, "STVGC",
-                            "presenta: vaciar=%llu ms envio=%llu ms acquire=%llu ms present=%llu ms (max %llu) n=%llu",
+                            "presenta: cpu_espera_video=%llu ms video_espera_gpu=%llu ms vaciar=%llu ms envio=%llu ms "
+                            "acquire=%llu ms present=%llu ms (max %llu) n=%llu",
+                            (unsigned long long)(CoreTiming::g_stv_us_espera_video.exchange(0) / 1000),
+                            (unsigned long long)(Vulkan::g_stv_us_cmdbuf.exchange(0) / 1000),
                             (unsigned long long)(Vulkan::g_stv_us_vaciar.exchange(0) / 1000),
                             (unsigned long long)(Vulkan::g_stv_us_envio.exchange(0) / 1000),
                             (unsigned long long)(Vulkan::g_stv_us_acq.exchange(0) / 1000),
