@@ -197,7 +197,8 @@ public:
 
   void Init(JitArm64* jit);
 
-  virtual void Start(PPCAnalyst::BlockRegStats& stats) {}
+  virtual void Start(PPCAnalyst::BlockRegStats& stats) { STVVolatilesAlEstado(); }
+  void STVVolatilesAlEstado();  // STV_GC_VOLATIL_x
   void DiscardRegisters(BitSet32 regs);
   void ResetRegisters(BitSet32 regs);
   // Flushes the register cache in different ways depending on the mode.

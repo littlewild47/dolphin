@@ -158,8 +158,21 @@ Arm64GPRCache::Arm64GPRCache() : Arm64RegCache(GUEST_GPR_COUNT + GUEST_CR_COUNT)
 {
 }
 
+// STV_GC_VOLATIL_x: un volatil descartado en el blr final del bloque anterior quedo "en ningun lado"; al empezar un
+// bloque, todo lo que no esta en un registro se toma como volcado (su valor ya estaba muerto).
+void Arm64RegCache::STVVolatilesAlEstado()
+{
+  for (size_t i = 0; i < m_guest_registers.size(); ++i)
+  {
+    OpArg& reg = m_guest_registers[i];
+    if (!STVEsFijo(i) && !reg.IsInHostRegister() && !reg.IsInPPCState())
+      reg.Flush();
+  }
+}
+
 void Arm64GPRCache::Start(PPCAnalyst::BlockRegStats& stats)
 {
+  STVVolatilesAlEstado();
   // STV_GC_JITGF_v1: al entrar a un bloque cada GPR fijo esta en su registro (invariante entre bloques).
   if (m_stv_gf != 0)
   {
