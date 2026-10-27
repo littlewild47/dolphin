@@ -66,6 +66,9 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
       {
         stv_dir = true;
       }
+      else if (STVBasePreparar(addr, up_reg, offset, BackPatchInfo::GetFlagSize(flags) / 8, update))
+      {
+      }
       else
       {
         ADDI2R(addr_reg, up_reg, offset, addr_reg);
@@ -115,7 +118,7 @@ void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 o
     }
   }
 
-  ARM64Reg XA = stv_dir ? up_reg : EncodeRegTo64(addr_reg);
+  ARM64Reg XA = stv_dir ? up_reg : (m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg));
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {
@@ -219,6 +222,9 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
       {
         stv_dir = true;
       }
+      else if (STVBasePreparar(dest, reg_dest, offset, BackPatchInfo::GetFlagSize(flags) / 8, update))
+      {
+      }
       else
       {
         ADDI2R(addr_reg, reg_dest, offset, addr_reg);
@@ -268,7 +274,7 @@ void JitArm64::SafeStoreFromReg(s32 dest, u32 value, s32 regOffset, u32 flags, s
     }
   }
 
-  ARM64Reg XA = stv_dir ? reg_dest : EncodeRegTo64(addr_reg);
+  ARM64Reg XA = stv_dir ? reg_dest : (m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg));
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {

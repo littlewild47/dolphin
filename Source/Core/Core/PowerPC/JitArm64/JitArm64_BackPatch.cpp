@@ -61,6 +61,11 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
 {
   const u32 access_size = BackPatchInfo::GetFlagSize(flags);
 
+  // STV_GC_BASE_x: lo pidio SafeLoadToReg/SafeStoreFromReg para este acceso (addr es X25); se consume aca.
+  const bool stv_base = m_stv_base_usar && !emitting_routine;
+  const s32 stv_off = m_stv_base_off;
+  m_stv_base_usar = false;
+
   if (m_accurate_cpu_cache_enabled)
     mode = MemAccessMode::AlwaysSlowAccess;
 
@@ -78,7 +83,7 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
   // el acceso de fastmem) y se salta el resto; si no, sigue el camino de siempre. W1 y X30 son temporales de los
   // tres emisores que llegan aca (stX, stfX, psq_st sin cuantizar); D0 tambien (el acceso rapido ya lo usa).
   std::optional<FixupBranch> stv_fifo_listo;
-  if (m_stv_fifo_reg && (flags & BackPatchInfo::FLAG_STORE) && !(flags & BackPatchInfo::FLAG_ZERO_256) &&
+  if (!stv_base && m_stv_fifo_reg && (flags & BackPatchInfo::FLAG_STORE) && !(flags & BackPatchInfo::FLAG_ZERO_256) &&
       mode == MemAccessMode::Auto && !emitting_routine && jo.fastmem && !jo.memcheck &&
       jo.optimizeGatherPipe && js.fifoWriteAddresses.contains(js.compilerPC) &&
       m_mmu.IsOptimizableGatherPipeWrite(0xCC008000))
@@ -144,7 +149,50 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
       slow_access_fixup = CheckIfSafeAddress(addr, temp1, temp2);
     }
 
-    if ((flags & BackPatchInfo::FLAG_STORE) && (flags & BackPatchInfo::FLAG_FLOAT))
+    // STV_GC_BASE_x: [X25, #desplazamiento] escalado si entra, si no sin escalar (STV ya verifico el rango).
+    const u32 stv_bytes = access_size / 8;
+    const bool stv_escalado = stv_base && stv_off >= 0 && (stv_off % stv_bytes) == 0 &&
+                              (stv_off / static_cast<s32>(stv_bytes)) <= 4095;
+    if (stv_base && !(flags & BackPatchInfo::FLAG_ZERO_256))
+    {
+      if ((flags & BackPatchInfo::FLAG_STORE) && (flags & BackPatchInfo::FLAG_FLOAT))
+      {
+        ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::D0, EncodeRegToDouble(RS), flags, true);
+        if (stv_escalado)
+          m_float_emit.STR(access_size, IndexType::Unsigned, temp, addr, stv_off);
+        else
+          m_float_emit.STUR(access_size, temp, addr, stv_off);
+      }
+      else if ((flags & BackPatchInfo::FLAG_LOAD) && (flags & BackPatchInfo::FLAG_FLOAT))
+      {
+        if (stv_escalado)
+          m_float_emit.LDR(access_size, IndexType::Unsigned, EncodeRegToDouble(RS), addr, stv_off);
+        else
+          m_float_emit.LDUR(access_size, EncodeRegToDouble(RS), addr, stv_off);
+        ByteswapAfterLoad(this, &m_float_emit, EncodeRegToDouble(RS), EncodeRegToDouble(RS), flags, true, false);
+      }
+      else if (flags & BackPatchInfo::FLAG_STORE)
+      {
+        ARM64Reg temp = ByteswapBeforeStore(this, &m_float_emit, ARM64Reg::W1, RS, flags, true);
+        if (flags & BackPatchInfo::FLAG_SIZE_32)
+          stv_escalado ? STR(IndexType::Unsigned, temp, addr, stv_off) : STUR(temp, addr, stv_off);
+        else if (flags & BackPatchInfo::FLAG_SIZE_16)
+          stv_escalado ? STRH(IndexType::Unsigned, temp, addr, stv_off) : STURH(temp, addr, stv_off);
+        else
+          stv_escalado ? STRB(IndexType::Unsigned, temp, addr, stv_off) : STURB(temp, addr, stv_off);
+      }
+      else
+      {
+        if (flags & BackPatchInfo::FLAG_SIZE_32)
+          stv_escalado ? LDR(IndexType::Unsigned, RS, addr, stv_off) : LDUR(RS, addr, stv_off);
+        else if (flags & BackPatchInfo::FLAG_SIZE_16)
+          stv_escalado ? LDRH(IndexType::Unsigned, RS, addr, stv_off) : LDURH(RS, addr, stv_off);
+        else if (flags & BackPatchInfo::FLAG_SIZE_8)
+          stv_escalado ? LDRB(IndexType::Unsigned, RS, addr, stv_off) : LDURB(RS, addr, stv_off);
+        ByteswapAfterLoad(this, &m_float_emit, RS, RS, flags, true, false);
+      }
+    }
+    else if ((flags & BackPatchInfo::FLAG_STORE) && (flags & BackPatchInfo::FLAG_FLOAT))
     {
       ARM64Reg temp = ARM64Reg::D0;
       temp = ByteswapBeforeStore(this, &m_float_emit, temp, EncodeRegToDouble(RS), flags, true);
@@ -287,6 +335,15 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     // when compiling the routine, so the caller has to store it themselves.
     if (!emitting_routine)
       FlushPPCStateBeforeSlowAccess(ARM64Reg::W30, temp_fpr);
+
+    // STV_GC_BASE_x: la direccion de 32 bits se rearma desde la base (X25 - MEM_REG + desplazamiento, con la vuelta de
+    // 32 bits del PowerPC) en el registro de siempre (W1 carga, W2 escritura); W30 de temporal.
+    if (stv_base)
+    {
+      const ARM64Reg d = (flags & BackPatchInfo::FLAG_STORE) ? ARM64Reg::W2 : ARM64Reg::W1;
+      SUB(EncodeRegTo64(d), ARM64Reg::X25, MEM_REG);
+      ADDI2R(d, d, stv_off, ARM64Reg::W30);
+    }
 
     if (flags & BackPatchInfo::FLAG_STORE)
     {

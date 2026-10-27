@@ -84,6 +84,7 @@ void JitArm64::Init()
   fpr.Init(this);
   // STV_GC_JITGF_v1: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
   gpr.STVGfConfigurar(STVGf());
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0);  // STV_GC_BASE_x
   blocks.Init();
 
   code_block.m_stats = &js.st;
@@ -184,6 +185,7 @@ void JitArm64::ClearCache()
   RefreshConfig();
   // STV_GC_JITGF_v1: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
   gpr.STVGfConfigurar(STVGf());
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0);  // STV_GC_BASE_x
 
   GenerateAsmAndResetFreeMemoryRanges();
 }
@@ -469,6 +471,27 @@ u32 STVICAprender(u32 sitio, u32 destino)
   return 1;
 }
 
+// STV_GC_BASE_x: decide si el acceso [rA + off] va por X25 y, si hace falta, carga la base. Devuelve true si se usa.
+bool JitArm64::STVBasePreparar(int guest, ARM64Reg host, s32 off, u32 bytes, bool update)
+{
+  if (!(m_stv_volatil & 16384) || update || !jo.fastmem || jo.memcheck || guest < 0)
+    return false;
+  if (js.fifoWriteAddresses.contains(js.compilerPC))
+    return false;
+  const bool sin_escala = off >= -256 && off <= 255;
+  const bool escalado = off >= 0 && (off % bytes) == 0 && (off / bytes) <= 4095;
+  if (!sin_escala && !escalado)
+    return false;
+  if (m_stv_base_guest != guest)
+  {
+    ADD(ARM64Reg::X25, MEM_REG, host, ArithOption(host, ExtendSpecifier::UXTW));
+    m_stv_base_guest = guest;
+  }
+  m_stv_base_usar = true;
+  m_stv_base_off = off;
+  return true;
+}
+
 // STV_GC_SALTOINT_x: descuenta ciclos sin salir (W0/W1 de temporales: se llama con todo vaciado).
 void JitArm64::STVRestarDowncount(u32 ciclos)
 {
@@ -553,6 +576,7 @@ void JitArm64::STVEtiqueta(u32 indice)
   gpr.STVVolatilesAlEstado();
   fpr.STVVolatilesAlEstado();
   m_constant_propagation.Clear();
+  m_stv_base_guest = -1;  // STV_GC_BASE_x: el camino tomado puede no tener la base
   if (js.downcountAmount > it->base_dc)
     STVRestarDowncount(js.downcountAmount - it->base_dc);
   js.downcountAmount = it->base_dc;
@@ -1519,6 +1543,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
   m_stv_saltos.clear();  // STV_GC_SALTOINT_x
+  m_stv_base_guest = -1;  // STV_GC_BASE_x
 
   b->normalEntry = GetWritableCodePtr();
   // STV_GC_AUDITA_x
@@ -1876,6 +1901,15 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       stv_aud->push_back({m_code_buffer[i].opinfo->opname, m_code_buffer[i].address, m_code_buffer[i].inst.hex,
                           static_cast<u32>(GetCodePtr() - stv_in),
                           static_cast<u32>(m_far_code.GetCodePtr() - stv_if)});
+    }
+    // STV_GC_BASE_x: la base deja de valer si alguna instruccion (o las fusionadas) escribe su registro.
+    if (m_stv_base_guest >= 0)
+    {
+      for (int k = 0; k <= js.skipInstructions; k++)
+      {
+        if (m_code_buffer[i + k].regsOut[m_stv_base_guest])
+          m_stv_base_guest = -1;
+      }
     }
     i += js.skipInstructions;
     js.skipInstructions = 0;

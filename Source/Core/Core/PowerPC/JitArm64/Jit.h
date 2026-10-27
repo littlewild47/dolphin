@@ -472,6 +472,12 @@ protected:
   // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del
   // grafo de bloques tiene una arista a una direccion <= la de su bloque de origen (o pasa por el despachador), y ahi
   // se sigue chequeando; el downcount se descuenta igual en todas.
+  // STV_GC_BASE_x (bit 16384): X25 = MEM_REG + (u64)rA del invitado m_stv_base_guest (-1: nada). Un acceso con la misma
+  // base va como [X25, #desplazamiento] (las guardas de 2 GiB de la arena cubren el desborde de 32 bits, como en Jit64).
+  int m_stv_base_guest = -1;
+  bool m_stv_base_usar = false;
+  s32 m_stv_base_off = 0;
+  bool STVBasePreparar(int guest, Arm64Gen::ARM64Reg host, s32 off, u32 bytes, bool update);
   // STV_GC_LLAMADA_x
   bool m_stv_lr_en_salida = false;
   bool m_stv_blr_sin_and = false;
