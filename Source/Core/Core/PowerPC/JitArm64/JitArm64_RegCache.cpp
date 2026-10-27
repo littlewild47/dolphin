@@ -205,9 +205,10 @@ void Arm64GPRCache::STVFlushFijo(size_t index, FlushMode mode)
     // MaintainState (solo caminos de salida, que no vuelven) el REV queda en ese camino y la marca sigue.
     if (reg.STVRev())
     {
-      m_emit->REV32(host_reg, host_reg);
-      if (mode != FlushMode::MaintainState)
-        reg.STVSetRev(false);
+      if (mode == FlushMode::MaintainState)
+        m_emit->REV32(host_reg, host_reg);
+      else
+        return;  // sigue pendiente en su registro: lo resuelve DoJit antes de salir del bloque
     }
     if (m_stv_gf == 2 && !reg.IsInPPCState())
       m_emit->STR(IndexType::Unsigned, host_reg, PPC_REG, ppc_offset);

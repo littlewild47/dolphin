@@ -442,6 +442,13 @@ public:
   void STVRevMarcar(size_t preg) { m_guest_registers[GUEST_GPR_OFFSET + preg].STVSetRev(true); }
   void STVRevResolver(size_t preg);
   void STVRevResolverTodo();
+  BitSet32 STVRevPendientes() const
+  {
+    BitSet32 r;
+    for (size_t i = 0; i < GUEST_GPR_COUNT; ++i)
+      r[i] = m_guest_registers[GUEST_GPR_OFFSET + i].STVRev();
+    return r;
+  }
   int STVGfModo() const { return m_stv_gf; }
   bool STVEsFijo(size_t index) const override
   {

@@ -1599,7 +1599,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         fpr.DiscardRegisters(op.fprDiscardable);
         gpr.DiscardCRRegisters(op.crDiscardable);
       }
-      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut),
+      // STV_GC_REVDIF_x: un registro con REV pendiente no se vacia aca (quedaria el REV pegado a su carga).
+      const BitSet32 stv_rev_pend = m_stv_rev_dif ? gpr.STVRevPendientes() : BitSet32{};
+      gpr.FlushRegisters(~(op.gprWillBeRead | op.gprWillBeWritten) & (op.regsIn | op.regsOut) &
+                             ~stv_rev_pend,
                          FlushMode::Full);
       fpr.FlushRegisters(~(op.fprWillBeRead | op.fprWillBeWritten) &
                              (op.fregsIn | op.GetFregsOut()),
@@ -1623,6 +1626,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
   if (code_block.m_broken)
   {
+    gpr.STVRevResolverTodo();  // STV_GC_REVDIF_x
     gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     WriteExit(nextPC);
