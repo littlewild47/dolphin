@@ -16,6 +16,9 @@
 #include "Core/PowerPC/JitArm64/Jit.h"
 #include <unistd.h>
 #include <string>
+#include <map>
+#include <mutex>
+#include <fmt/format.h>
 #include <cstdio>
 #include "Core/System.h"
 #include "Core/PowerPC/JitCommon/JitCache.h"
@@ -69,6 +72,10 @@ extern bool g_stv_fifo_lote;    // STV_GC_FIFO3_v1
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
+extern std::atomic<u32> g_stv_efb_copias, g_stv_efb_ram, g_stv_efb_inmed, g_stv_efb_kb;  // STV_GC_EFBCUENTA_x
+extern std::atomic<u32> g_stv_efb_vac[4], g_stv_efb_vac_us, g_stv_efb_vac_n;
+extern std::mutex g_stv_efb_mx;
+extern std::map<u64, u32> g_stv_efb_tipos;
 static TimePoint s_stv_ultimo_cuadro{};
 
 void PerformanceMetrics::CountFrame()
@@ -507,6 +514,35 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_EFBCUENTA_x: una linea por segundo con las copias del EFB y sus vaciados, y otra con los tipos de copia a RAM.
+    {
+      const u32 co = g_stv_efb_copias.exchange(0), ra = g_stv_efb_ram.exchange(0), im = g_stv_efb_inmed.exchange(0),
+                kb = g_stv_efb_kb.exchange(0), v0 = g_stv_efb_vac[0].exchange(0), v1 = g_stv_efb_vac[1].exchange(0),
+                v2 = g_stv_efb_vac[2].exchange(0), v3 = g_stv_efb_vac[3].exchange(0),
+                us = g_stv_efb_vac_us.exchange(0), vn = g_stv_efb_vac_n.exchange(0);
+      std::string tipos;
+      {
+        std::lock_guard lk(g_stv_efb_mx);
+        int k = 0;
+        for (const auto& [t, n] : g_stv_efb_tipos)
+        {
+          if (k++ >= 10)
+            break;
+          tipos += fmt::format(" {:08x}:{}x{}f{}z{}x{}", static_cast<u32>(t >> 32), (t >> 20) & 0xFFF,
+                               (t >> 8) & 0xFFF, (t >> 1) & 0x7F, t & 1, n);
+        }
+        g_stv_efb_tipos.clear();
+      }
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+      {
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "efb: copias=%u/s ram=%u/s inmediatas=%u KB=%u/s vaciados dd=%u tk=%u ti=%u otro=%u "
+                            "copias_vaciadas=%u espera=%.1fms/s",
+                            co, ra, im, kb, v0, v1, v2, v3, vn, us / 1000.0);
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "efb tipos:%s", tipos.c_str());
+      }
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')

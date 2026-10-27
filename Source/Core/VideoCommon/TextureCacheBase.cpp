@@ -58,6 +58,10 @@
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 
+#include <chrono>
+#include <map>
+#include <mutex>
+
 static const u64 TEXHASH_INVALID = 0;
 // Sonic the Fighters (inside Sonic Gems Collection) loops a 64 frames animation
 static const int TEXTURE_KILL_THRESHOLD = 64;
@@ -173,6 +177,13 @@ void TextureCacheBase::OnConfigChanged(const VideoConfig& config)
 
   SetBackupConfig(config);
 }
+
+// STV_GC_EFBCUENTA_x: copias del EFB por segundo (a RAM, inmediatas, KB), vaciados de las diferidas por motivo y el
+// tiempo que tarda cada vaciado (la espera a la GPU + la lectura), y los tipos de copia a RAM del ultimo segundo.
+std::atomic<u32> g_stv_efb_copias{0}, g_stv_efb_ram{0}, g_stv_efb_inmed{0}, g_stv_efb_kb{0};
+std::atomic<u32> g_stv_efb_vac[4]{}, g_stv_efb_vac_us{0}, g_stv_efb_vac_n{0};
+std::mutex g_stv_efb_mx;
+std::map<u64, u32> g_stv_efb_tipos;
 
 // STV_GC_METRICAS: tamano de la cache de texturas (entradas vivas y pool de libres), cada 60 cuadros.
 std::atomic<u32> g_stv_tex_n{0}, g_stv_tex_kb{0}, g_stv_pool_n{0}, g_stv_pool_kb{0};
@@ -2430,8 +2441,20 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     }
   }
 
+  g_stv_efb_copias.fetch_add(1, std::memory_order_relaxed);
   if (copy_to_ram)
   {
+    g_stv_efb_ram.fetch_add(1, std::memory_order_relaxed);
+    g_stv_efb_kb.fetch_add(bytes_per_row * num_blocks_y / 1024, std::memory_order_relaxed);
+    if (!copy_to_vram || !g_ActiveConfig.bDeferEFBCopies)
+      g_stv_efb_inmed.fetch_add(1, std::memory_order_relaxed);
+    {
+      std::lock_guard lk(g_stv_efb_mx);
+      const u64 k = (static_cast<u64>(dstAddr) << 32) | (static_cast<u64>(tex_w & 0xFFF) << 20) |
+                    ((tex_h & 0xFFF) << 8) | ((static_cast<u32>(dstFormat) & 0x7F) << 1) |
+                    (is_depth_copy ? 1 : 0);
+      g_stv_efb_tipos[k]++;
+    }
     const std::array<u32, 3> coefficients = GetRAMCopyFilterCoefficients(filter_coefficients);
     PixelFormat srcFormat = bpmem.zcontrol.pixel_format;
     EFBCopyParams format(srcFormat, dstFormat, is_depth_copy, isIntensity,
@@ -2558,14 +2581,21 @@ void TextureCacheBase::CopyRenderTargetToTexture(
   }
 }
 
-void TextureCacheBase::FlushEFBCopies()
+void TextureCacheBase::FlushEFBCopies(int stv_motivo)
 {
   if (m_pending_efb_copies.empty())
     return;
 
+  const auto stv_t0 = std::chrono::steady_clock::now();
+  g_stv_efb_vac[stv_motivo & 3].fetch_add(1, std::memory_order_relaxed);
+  g_stv_efb_vac_n.fetch_add(static_cast<u32>(m_pending_efb_copies.size()), std::memory_order_relaxed);
   for (auto& entry : m_pending_efb_copies)
     FlushEFBCopy(entry.get());
   m_pending_efb_copies.clear();
+  g_stv_efb_vac_us.fetch_add(static_cast<u32>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                  std::chrono::steady_clock::now() - stv_t0)
+                                                  .count()),
+                             std::memory_order_relaxed);
 }
 
 void TextureCacheBase::FlushStaleBinds()

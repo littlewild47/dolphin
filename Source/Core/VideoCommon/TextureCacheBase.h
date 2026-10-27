@@ -295,7 +295,7 @@ public:
   void ScaleTextureCacheEntryTo(RcTcacheEntry& entry, u32 new_width, u32 new_height);
 
   // Flushes all pending EFB copies to emulated RAM.
-  void FlushEFBCopies();
+  void FlushEFBCopies(int stv_motivo = 3);  // STV_GC_EFBCUENTA_x: 0 draw done, 1 token, 2 token int, 3 otro
 
   // Flush any Bound textures that can't be reused
   void FlushStaleBinds();
