@@ -252,6 +252,9 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           stv_vo_prev = n;
           Config::SetCurrent(Config::MAIN_STV_VOLATIL, n);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: volatil=%d", n);
+        }
+      }
+    }
     // STV_GC_TRAZA_x (instrumento): debug.stv.gc.traza = "p<n>" prende el perfilado de bloques (modo depuracion +
     // JitEnableProfiling: vacia la cache), "w<n>" pone los contadores en cero, "d<n>" escribe files/perf/traza-<pid>.tsv
     // con una linea por bloque: direccion PPC, inicio y tamano del codigo cercano, tamano del lejano, ejecuciones (0 sin
