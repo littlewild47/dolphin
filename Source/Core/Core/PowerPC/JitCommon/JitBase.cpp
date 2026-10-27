@@ -198,6 +198,11 @@ void JitBase::RefreshConfig()
     analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
   else
     analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
+  // STV_GC_CRVOL_x: bit 2048 (con el 2).
+  if ((m_stv_volatil & 2048) && (m_stv_volatil & 2))
+    analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_CR_VOLATIL);
+  else
+    analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_CR_VOLATIL);
   // STV_GC_FFFP_x: bit 256; las banderas de bloque se recalculan (esta funcion corre antes de vaciar la cache).
   g_stv_ff_fp = (m_stv_volatil & 256) != 0;
   PowerPC::RecalculateAllFeatureFlags(m_ppc_state);

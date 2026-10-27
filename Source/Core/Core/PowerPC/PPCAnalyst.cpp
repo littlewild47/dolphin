@@ -1038,6 +1038,8 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   // STV_GC_VOLATIL_x: blr incondicional sin link al final del bloque (y no saltado por seguir ramas).
   int stv_blr_final = -1;
   BitSet32 stv_vg, stv_vf;
+  BitSet8 stv_vc;  // STV_GC_CRVOL_x
+  const BitSet8 stv_cr_vol = HasOption(OPTION_STV_CR_VOLATIL) ? BitSet8{0, 1, 5, 6, 7} : BitSet8{};
   if (HasOption(OPTION_STV_VOLATILES_MUERTOS) && block->m_num_instructions > 0)
   {
     const CodeOp& u = code[block->m_num_instructions - 1];
@@ -1078,7 +1080,7 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     op.crWillBeWritten = crWillBeWritten;
     op.gprDiscardable = gprDiscardable | stv_vg;
     op.fprDiscardable = fprDiscardable | stv_vf;
-    op.crDiscardable = crDiscardable;
+    op.crDiscardable = crDiscardable | stv_vc;
     // STV_GC_VOLATIL_x: volatiles muertos desde el blr final (salvo r3-r4 y f1-f4, posibles valores de retorno). Los
     // corta solo una salida a otro codigo (rama, sc, rfi...): una excepcion o el chequeo de interrupcion tras un guardado
     // vuelve a la instruccion siguiente de esta misma funcion, que no los lee.
@@ -1086,11 +1088,13 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     {
       stv_vg = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12} & ~op.regsIn;
       stv_vf = BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13} & ~op.fregsIn;
+      stv_vc = stv_cr_vol & ~op.crIn;
     }
     else if (op.canEndBlock || hle || breakpoint)
     {
       stv_vg = BitSet32{};
       stv_vf = BitSet32{};
+      stv_vc = BitSet8{};
     }
     else if (stv_blr_final >= 0)
     {
@@ -1098,6 +1102,8 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
       stv_vg &= ~op.regsIn;
       stv_vf |= op.GetFregsOut() & BitSet32{0, 5, 6, 7, 8, 9, 10, 11, 12, 13};
       stv_vf &= ~op.fregsIn;
+      stv_vc |= op.crOut & stv_cr_vol;
+      stv_vc &= ~op.crIn;
     }
     op.fprInXmm = fprInXmm;
     gprWillBeRead &= ~op.regsOut;

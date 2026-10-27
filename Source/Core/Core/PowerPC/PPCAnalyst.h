@@ -185,6 +185,8 @@ public:
     // STV_GC_SALTOINT_x: un bc condicional hacia una instruccion posterior del mismo bloque (direcciones contiguas)
     // salta adentro en vez de salir: el destino no se compila de nuevo como bloque aparte.
     OPTION_STV_SALTO_INTERNO = (1 << 28),
+    // STV_GC_CRVOL_x: con OPTION_STV_VOLATILES_MUERTOS, tambien los campos volatiles del CR (0, 1, 5, 6, 7).
+    OPTION_STV_CR_VOLATIL = (1 << 27),
     // STV_GC_VOLATIL_x: en un bloque que termina en blr incondicional, los registros volatiles del ABI (r0, r5-r12,
     // f0, f5-f13) estan muertos al salir.
     OPTION_STV_VOLATILES_MUERTOS = (1 << 30),
