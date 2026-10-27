@@ -13,6 +13,13 @@
 #include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 #include "Core/Config/MainSettings.h"
+#include <unistd.h>
+#include <string>
+#include <cstdio>
+#include "Core/System.h"
+#include "Core/PowerPC/JitCommon/JitCache.h"
+#include "Core/PowerPC/JitCommon/JitBase.h"
+#include "Core/PowerPC/JitInterface.h"
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
@@ -244,6 +251,54 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           stv_vo_prev = n;
           Config::SetCurrent(Config::MAIN_STV_VOLATIL, n);
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: volatil=%d", n);
+    // STV_GC_TRAZA_x (instrumento): debug.stv.gc.traza = "p<n>" prende el perfilado de bloques (modo depuracion +
+    // JitEnableProfiling: vacia la cache), "w<n>" pone los contadores en cero, "d<n>" escribe files/perf/traza-<pid>.tsv
+    // con una linea por bloque: direccion PPC, inicio y tamano del codigo cercano, tamano del lejano, ejecuciones (0 sin
+    // perfilado) y los destinos de sus salidas. Corre en el hilo de CPU.
+    {
+      char tz[PROP_VALUE_MAX] = {};
+      static std::string stv_tz_prev;
+      if (__system_property_get("debug.stv.gc.traza", tz) > 0 && stv_tz_prev != tz)
+      {
+        stv_tz_prev = tz;
+        auto& system = Core::System::GetInstance();
+        if (tz[0] == 'p')
+        {
+          Config::SetCurrent(Config::MAIN_ENABLE_DEBUGGING, true);
+          Config::SetCurrent(Config::MAIN_DEBUG_JIT_ENABLE_PROFILING, true);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: perfilado prendido");
+        }
+        else if (tz[0] == 'w')
+        {
+          const Core::CPUThreadGuard guard(system);
+          system.GetJitInterface().WipeBlockProfilingData(guard);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: contadores en cero");
+        }
+        else if (tz[0] == 'd')
+        {
+          const Core::CPUThreadGuard guard(system);
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/traza-{}.tsv", getpid());
+          JitBase* jit = system.GetJitInterface().GetCore();
+          std::FILE* f = std::fopen(ruta.c_str(), "w");
+          if (f && jit)
+          {
+            u64 n = 0;
+            jit->GetBlockCache()->RunOnBlocks(guard, [&](const JitBlock& b) {
+              std::fprintf(f, "%08x\t%llx\t%zu\t%zu\t%llu\t", b.effectiveAddress,
+                           (unsigned long long)(uintptr_t)b.near_begin, (size_t)(b.near_end - b.near_begin),
+                           (size_t)(b.far_end - b.far_begin),
+                           (unsigned long long)(b.profile_data ? b.profile_data->run_count : 0));
+              for (const auto& e : b.linkData)
+                std::fprintf(f, "%08x%s,", e.exitAddress, e.call ? "c" : "");
+              std::fputc('\n', f);
+              ++n;
+            });
+            __android_log_print(ANDROID_LOG_INFO, "STVGC", "traza: %llu bloques en %s", (unsigned long long)n,
+                                ruta.c_str());
+          }
+          if (f)
+            std::fclose(f);
         }
       }
     }
