@@ -156,7 +156,7 @@ void JitArm64::lfXX(UGeckoInstruction inst)
     }
   }
 
-  ARM64Reg XA = m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
+  ARM64Reg XA = m_stv_base_usar ? m_stv_base_reg : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
 
   if (is_immediate)
     MOVI2R(XA, imm_addr);
@@ -359,7 +359,7 @@ void JitArm64::stfXX(UGeckoInstruction inst)
     }
   }
 
-  ARM64Reg XA = m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
+  ARM64Reg XA = m_stv_base_usar ? m_stv_base_reg : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {

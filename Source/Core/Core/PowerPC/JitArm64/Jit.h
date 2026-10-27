@@ -483,7 +483,10 @@ protected:
   // se sigue chequeando; el downcount se descuenta igual en todas.
   // STV_GC_BASE_x (bit 16384): X25 = MEM_REG + (u64)rA del invitado m_stv_base_guest (-1: nada). Un acceso con la misma
   // base va como [X25, #desplazamiento] (las guardas de 2 GiB de la arena cubren el desborde de 32 bits, como en Jit64).
-  int m_stv_base_guest = -1;
+  // STV_GC_BASE2_x (bit 65536): segunda ranura en X26 (W26 sale del pool; solo lo escriben las salidas al irse).
+  std::array<int, 2> m_stv_base_guest{-1, -1};
+  u32 m_stv_base_lru = 0;  // ranura usada mas recientemente
+  Arm64Gen::ARM64Reg m_stv_base_reg = Arm64Gen::ARM64Reg::X25;
   bool m_stv_base_usar = false;
   s32 m_stv_base_off = 0;
   bool STVBasePreparar(int guest, Arm64Gen::ARM64Reg host, s32 off, u32 bytes, bool update);

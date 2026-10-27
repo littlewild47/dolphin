@@ -341,7 +341,7 @@ void JitArm64::EmitBackpatchRoutine(u32 flags, MemAccessMode mode, ARM64Reg RS, 
     if (stv_base)
     {
       const ARM64Reg d = (flags & BackPatchInfo::FLAG_STORE) ? ARM64Reg::W2 : ARM64Reg::W1;
-      SUB(EncodeRegTo64(d), ARM64Reg::X25, MEM_REG);
+      SUB(EncodeRegTo64(d), addr, MEM_REG);
       ADDI2R(d, d, stv_off, ARM64Reg::W30);
     }
 

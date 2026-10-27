@@ -427,7 +427,7 @@ public:
 
   // STV_GC_JITGF_v1: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
   // cache vacia (Init y ClearCache, despues de RefreshConfig).
-  void STVBaseConfigurar(bool reservar);  // STV_GC_BASE_x
+  void STVBaseConfigurar(bool reservar, bool reservar26);  // STV_GC_BASE_x / BASE2_x
   void STVGfConfigurar(int modo);
   int STVGfModo() const { return m_stv_gf; }
   bool STVEsFijo(size_t index) const override
@@ -466,6 +466,7 @@ private:
   // STV_GC_JITGF_v1
   void STVFlushFijo(size_t index, FlushMode mode);
   bool m_stv_x25 = false;  // STV_GC_BASE_x
+  bool m_stv_x26 = false;  // STV_GC_BASE2_x
   int m_stv_gf = 0;
 
   struct GuestRegInfo

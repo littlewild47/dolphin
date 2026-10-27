@@ -84,7 +84,7 @@ void JitArm64::Init()
   fpr.Init(this);
   // STV_GC_JITGF_v1: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
   gpr.STVGfConfigurar(STVGf());
-  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0);  // STV_GC_BASE_x
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
   blocks.Init();
 
   code_block.m_stats = &js.st;
@@ -185,7 +185,7 @@ void JitArm64::ClearCache()
   RefreshConfig();
   // STV_GC_JITGF_v1: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
   gpr.STVGfConfigurar(STVGf());
-  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0);  // STV_GC_BASE_x
+  gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
 
   GenerateAsmAndResetFreeMemoryRanges();
 }
@@ -482,11 +482,22 @@ bool JitArm64::STVBasePreparar(int guest, ARM64Reg host, s32 off, u32 bytes, boo
   const bool escalado = off >= 0 && (off % bytes) == 0 && (off / bytes) <= 4095;
   if (!sin_escala && !escalado)
     return false;
-  if (m_stv_base_guest != guest)
+  const int ranuras = (m_stv_volatil & 65536) ? 2 : 1;
+  int r = -1;
+  for (int k = 0; k < ranuras; k++)
   {
-    ADD(ARM64Reg::X25, MEM_REG, host, ArithOption(host, ExtendSpecifier::UXTW));
-    m_stv_base_guest = guest;
+    if (m_stv_base_guest[k] == guest)
+      r = k;
   }
+  if (r < 0)
+  {
+    r = ranuras == 2 ? static_cast<int>(1 - m_stv_base_lru) : 0;
+    const ARM64Reg x = r == 0 ? ARM64Reg::X25 : ARM64Reg::X26;
+    ADD(x, MEM_REG, host, ArithOption(host, ExtendSpecifier::UXTW));
+    m_stv_base_guest[r] = guest;
+  }
+  m_stv_base_lru = static_cast<u32>(r);
+  m_stv_base_reg = r == 0 ? ARM64Reg::X25 : ARM64Reg::X26;
   m_stv_base_usar = true;
   m_stv_base_off = off;
   return true;
@@ -582,7 +593,7 @@ void JitArm64::STVEtiqueta(u32 indice)
   gpr.STVVolatilesAlEstado();
   fpr.STVVolatilesAlEstado();
   m_constant_propagation.Clear();
-  m_stv_base_guest = -1;  // STV_GC_BASE_x: el camino tomado puede no tener la base
+  m_stv_base_guest = {-1, -1};  // STV_GC_BASE_x: el camino tomado puede no tener la base
   if (js.downcountAmount > it->base_dc)
     STVRestarDowncount(js.downcountAmount - it->base_dc);
   js.downcountAmount = it->base_dc;
@@ -1549,7 +1560,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
   m_stv_saltos.clear();  // STV_GC_SALTOINT_x
-  m_stv_base_guest = -1;  // STV_GC_BASE_x
+  m_stv_base_guest = {-1, -1};  // STV_GC_BASE_x
   m_stv_talones.clear();  // STV_GC_TALON_x
 
   b->normalEntry = GetWritableCodePtr();
@@ -1910,12 +1921,16 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
                           static_cast<u32>(m_far_code.GetCodePtr() - stv_if)});
     }
     // STV_GC_BASE_x: la base deja de valer si alguna instruccion (o las fusionadas) escribe su registro.
-    if (m_stv_base_guest >= 0)
+    for (int& g : m_stv_base_guest)
     {
+      if (g < 0)
+        continue;
       for (int k = 0; k <= js.skipInstructions; k++)
       {
-        if (m_code_buffer[i + k].regsOut[m_stv_base_guest])
-          m_stv_base_guest = -1;
+        if (m_code_buffer[i + k].regsOut[g])
+          g = -1;
+        if (g < 0)
+          break;
       }
     }
     i += js.skipInstructions;

@@ -195,11 +195,12 @@ void Arm64GPRCache::STVFijoEnHost(size_t index)
 // STV_GC_JITGF_v1: cambia el modo y reconstruye el orden de asignacion (con la valvula, sin W19-W24). Se llama con la
 // cache vacia; todo invitado vuelve a "solo en ppcState" y Start() vuelve a enlazar los fijos en cada bloque.
 // STV_GC_BASE_x: reserva (o devuelve) W25; mismo procedimiento que STVGfConfigurar (cache vacia).
-void Arm64GPRCache::STVBaseConfigurar(bool reservar)
+void Arm64GPRCache::STVBaseConfigurar(bool reservar, bool reservar26)
 {
-  if (reservar == m_stv_x25)
+  if (reservar == m_stv_x25 && reservar26 == m_stv_x26)
     return;
   m_stv_x25 = reservar;
+  m_stv_x26 = reservar26;
   for (auto& reg : m_guest_registers)
     reg.Flush();
   m_host_registers.clear();
@@ -643,6 +644,8 @@ void Arm64GPRCache::GetAllocationOrder()
       continue;
     // STV_GC_BASE_x: con la valvula, W25 es el registro de base (X25 = MEM_REG + rA), fuera del pool.
     if (m_stv_x25 && reg == ARM64Reg::W25)
+      continue;
+    if (m_stv_x26 && reg == ARM64Reg::W26)  // STV_GC_BASE2_x
       continue;
     m_host_registers.push_back(HostReg(reg));
   }
