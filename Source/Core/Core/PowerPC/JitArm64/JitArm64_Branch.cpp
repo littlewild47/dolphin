@@ -214,6 +214,17 @@ void JitArm64::bcx(UGeckoInstruction inst)
       STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
 
+    // STV_GC_SALTOINT_x
+    bool stv_directo = false;
+    const bool stv_ctr = (inst.BO & BO_DONT_DECREMENT_FLAG) == 0;
+    const bool stv_cond = (inst.BO & BO_DONT_CHECK_CONDITION) == 0;
+    if (js.op->stvSaltoA >= 0 && !inst.LK && !js.op->branchIsIdleLoop && !IsBranchWatchEnabled())
+    {
+      FixupBranch* unica = stv_ctr == stv_cond ? nullptr : (stv_ctr ? &pCTRDontBranch : &pConditionDontBranch);
+      stv_directo = STVSaltoInterno(unica, WB);
+    }
+    else
+    {
     gpr.Flush(FlushMode::MaintainState, WB);
     fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
 
@@ -240,10 +251,11 @@ void JitArm64::bcx(UGeckoInstruction inst)
     {
       WriteExit(js.op->branchTo, inst.LK, js.compilerPC + 4, WA);
     }
+    }
 
-    if ((inst.BO & BO_DONT_CHECK_CONDITION) == 0)
+    if (stv_cond && !stv_directo)
       SetJumpTarget(pConditionDontBranch);
-    if ((inst.BO & BO_DONT_DECREMENT_FLAG) == 0)
+    if (stv_ctr && !stv_directo)
       SetJumpTarget(pCTRDontBranch);
   }
 

@@ -388,6 +388,101 @@ void JitArm64::DoDownCount()
   STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
 }
 
+// STV_GC_SALTOINT_x: descuenta ciclos sin salir (W0/W1 de temporales: se llama con todo vaciado).
+void JitArm64::STVRestarDowncount(u32 ciclos)
+{
+  if (STVDcReg())
+  {
+    SUBSI2R(DOWNCOUNT_REG, DOWNCOUNT_REG, ciclos, ARM64Reg::W1);
+    return;
+  }
+  LDR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
+  SUBSI2R(ARM64Reg::W0, ARM64Reg::W0, ciclos, ARM64Reg::W1);
+  STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
+}
+
+// STV_GC_SALTOINT_x: camino tomado de un bc interno, emitido donde iria su WriteExit. Si la rama de "no saltar" es
+// una sola y el vaciado no emite nada (ni hace falta ajustar el downcount), se invierte esa rama y salta directo a la
+// etiqueta: devuelve true y quien llama ya no la resuelve.
+bool JitArm64::STVSaltoInterno(FixupBranch* unica, ARM64Reg tmp)
+{
+  const u32 destino = static_cast<u32>(js.op->stvSaltoA);
+  auto it = std::ranges::find_if(m_stv_saltos, [&](const auto& p) { return p.destino == destino; });
+  if (it == m_stv_saltos.end())
+  {
+    m_stv_saltos.push_back({destino, {}, js.downcountAmount, js.firstFPInstructionFound,
+                            js.fifoBytesSinceCheck, js.mustCheckFifo});
+    it = m_stv_saltos.end() - 1;
+  }
+  else
+  {
+    it->fp = it->fp && js.firstFPInstructionFound;
+    it->fifo = std::max(it->fifo, js.fifoBytesSinceCheck);
+    it->fifo_obligado = it->fifo_obligado || js.mustCheckFifo;
+  }
+
+  const u8* antes = GetCodePtr();
+  gpr.Flush(FlushMode::MaintainState, tmp);
+  fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
+  const bool ajuste = js.downcountAmount != it->base_dc;
+  if (unica && !ajuste && GetCodePtr() == antes)
+  {
+    FixupBranch f = *unica;
+    switch (f.type)
+    {
+    case FixupBranch::Type::CBZ:
+      f.type = FixupBranch::Type::CBNZ;
+      break;
+    case FixupBranch::Type::CBNZ:
+      f.type = FixupBranch::Type::CBZ;
+      break;
+    case FixupBranch::Type::TBZ:
+      f.type = FixupBranch::Type::TBNZ;
+      break;
+    case FixupBranch::Type::TBNZ:
+      f.type = FixupBranch::Type::TBZ;
+      break;
+    case FixupBranch::Type::BConditional:
+      f.cond = static_cast<CCFlags>(f.cond ^ 1);
+      break;
+    default:
+      ASSERT(false);
+    }
+    it->saltos.push_back(f);
+    return true;
+  }
+  if (ajuste)
+    STVRestarDowncount(js.downcountAmount - it->base_dc);
+  it->saltos.push_back(B());
+  return false;
+}
+
+// STV_GC_SALTOINT_x: llegada del camino de largo a una etiqueta con saltos pendientes.
+void JitArm64::STVEtiqueta(u32 indice)
+{
+  auto it = std::ranges::find_if(m_stv_saltos, [&](const auto& p) { return p.destino == indice; });
+  if (it == m_stv_saltos.end())
+    return;
+  FlushCarry();
+  gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG, IgnoreDiscardedRegisters::Yes);
+  fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG, IgnoreDiscardedRegisters::Yes);
+  // Un descartado del camino de largo esta muerto en los dos caminos (se escribe antes de leerse); el tomado lo trae en
+  // ppcState. Se toma como volcado: la union puede agregar salidas que el analisis lineal no vio (el chequeo de FPU si
+  // un camino no lo hizo, el del gather pipe por el maximo) y esas vacian todo.
+  gpr.STVVolatilesAlEstado();
+  fpr.STVVolatilesAlEstado();
+  m_constant_propagation.Clear();
+  if (js.downcountAmount > it->base_dc)
+    STVRestarDowncount(js.downcountAmount - it->base_dc);
+  js.downcountAmount = it->base_dc;
+  for (const FixupBranch& f : it->saltos)
+    SetJumpTarget(f);
+  js.firstFPInstructionFound = js.firstFPInstructionFound && it->fp;
+  js.fifoBytesSinceCheck = std::max(js.fifoBytesSinceCheck, it->fifo);
+  js.mustCheckFifo = js.mustCheckFifo || it->fifo_obligado;
+  m_stv_saltos.erase(it);
+}
+
 // STV_GC_JITDC_v1: W27 -> ppcState.downcount. Con la valvula apagada no emite nada, o un NOP si se pide
 // (rutinas del despachador: misma disposicion en los dos modos).
 void JitArm64::STVDcGuardar(bool nop_si_apagada)
@@ -617,6 +712,12 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
 
   LK &= m_enable_blr_optimization;
 
+  // STV_GC_CORTO_x
+  const bool corto = STVCorto(destination);
+  const bool corto_ret = LK && STVCorto(exit_address_after_return);
+  const size_t tam = JitArm64BlockCache::STVTamEnlace(corto);
+  const size_t tam_ret = JitArm64BlockCache::STVTamEnlace(corto_ret);
+
   const u8* host_address_after_return = nullptr;
   if (LK)
   {
@@ -636,7 +737,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
       ORRI2R(ARM64Reg::X1, EncodeRegTo64(exit_address_after_return_reg), feature_flags << 32,
              ARM64Reg::X1);
     }
-    constexpr s32 adr_offset = JitArm64BlockCache::BLOCK_LINK_SIZE + sizeof(u32) * 2;
+    const s32 adr_offset = static_cast<s32>(tam + sizeof(u32) * 2);
     host_address_after_return = GetCodePtr() + adr_offset;
     ADR(ARM64Reg::X0, adr_offset);
     STP(IndexType::Pre, ARM64Reg::X0, reg_to_push, ARM64Reg::SP, -16);
@@ -653,8 +754,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
   }
   else
   {
-    primary_farcode_addr = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE +
-                           (LK ? JitArm64BlockCache::BLOCK_LINK_SIZE : 0);
+    primary_farcode_addr = GetCodePtr() + tam + (LK ? tam_ret : 0);
   }
   const u8* return_farcode_addr = primary_farcode_addr + primary_farcode_size;
 
@@ -665,6 +765,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
   linkData.linkStatus = false;
   linkData.call = LK;
   linkData.exitFarcode = primary_farcode_addr;
+  linkData.stv_corto = corto;
   b->linkData.push_back(linkData);
 
   blocks.WriteLinkBlock(*this, linkData);
@@ -679,6 +780,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     linkData.linkStatus = false;
     linkData.call = false;
     linkData.exitFarcode = return_farcode_addr;
+    linkData.stv_corto = corto_ret;
     b->linkData.push_back(linkData);
 
     blocks.WriteLinkBlock(*this, linkData);
@@ -688,7 +790,10 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     SwitchToFarCode();
   DEBUG_ASSERT(GetCodePtr() == primary_farcode_addr || HasWriteFailed());
   MOVI2R(DISPATCHER_PC, destination);
-  if (LK)
+  // STV_GC_CORTO_x: una salida corta llega aca sin enlazar (no por vencimiento): el despachador chequea las banderas.
+  if (corto)
+    B(dispatcher);
+  else if (LK)
     BL(GetAsmRoutines()->do_timing);
   else
     B(GetAsmRoutines()->do_timing);
@@ -699,7 +804,7 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
       BRK(101);
     DEBUG_ASSERT(GetCodePtr() == return_farcode_addr || HasWriteFailed());
     MOVI2R(DISPATCHER_PC, exit_address_after_return);
-    B(GetAsmRoutines()->do_timing);
+    B(corto_ret ? dispatcher : GetAsmRoutines()->do_timing);
   }
 
   if (switch_to_far_code)
@@ -767,6 +872,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     linkData.exitPtrs = GetWritableCodePtr();
     linkData.linkStatus = false;
     linkData.call = false;
+    linkData.stv_corto = STVCorto(exit_address_after_return);  // STV_GC_CORTO_x
     const bool switch_to_far_code = !IsInFarCode();
     if (switch_to_far_code)
     {
@@ -776,7 +882,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     }
     else
     {
-      linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE;
+      linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::STVTamEnlace(linkData.stv_corto);
     }
     b->linkData.push_back(linkData);
 
@@ -785,7 +891,7 @@ void JitArm64::WriteExit(Arm64Gen::ARM64Reg dest, bool LK, u32 exit_address_afte
     if (switch_to_far_code)
       SwitchToFarCode();
     MOVI2R(DISPATCHER_PC, exit_address_after_return);
-    B(GetAsmRoutines()->do_timing);
+    B(linkData.stv_corto ? dispatcher : GetAsmRoutines()->do_timing);
     if (switch_to_far_code)
       SwitchToNearCode();
   }
@@ -853,6 +959,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   linkData.exitPtrs = GetWritableCodePtr();
   linkData.linkStatus = false;
   linkData.call = false;
+  linkData.stv_corto = STVCorto(exit_address_after_return);  // STV_GC_CORTO_x
   const bool switch_to_far_code = !IsInFarCode();
   if (switch_to_far_code)
   {
@@ -862,7 +969,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   }
   else
   {
-    linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::BLOCK_LINK_SIZE;
+    linkData.exitFarcode = GetCodePtr() + JitArm64BlockCache::STVTamEnlace(linkData.stv_corto);
   }
   b->linkData.push_back(linkData);
 
@@ -871,7 +978,7 @@ void JitArm64::FakeLKExit(u32 exit_address_after_return, ARM64Reg exit_address_a
   if (switch_to_far_code)
     SwitchToFarCode();
   MOVI2R(DISPATCHER_PC, exit_address_after_return);
-  B(GetAsmRoutines()->do_timing);
+  B(linkData.stv_corto ? dispatcher : GetAsmRoutines()->do_timing);
   if (switch_to_far_code)
     SwitchToNearCode();
 
@@ -1285,6 +1392,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.carryFlag = CarryFlag::InPPCState;
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
+  m_stv_saltos.clear();  // STV_GC_SALTOINT_x
 
   b->normalEntry = GetWritableCodePtr();
   // STV_GC_AUDITA_x
@@ -1386,6 +1494,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     const u8* stv_in = GetCodePtr();
     const u8* stv_if = m_far_code.GetCodePtr();
     PPCAnalyst::CodeOp& op = m_code_buffer[i];
+
+    // STV_GC_SALTOINT_x
+    if (op.stvEtiqueta)
+      STVEtiqueta(i);
 
     js.compilerPC = op.address;
     js.op = &op;
@@ -1642,6 +1754,17 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     WriteExit(nextPC);
   }
+
+  // STV_GC_SALTOINT_x: saltos internos cuya etiqueta no se alcanzo (el lazo corto antes: gancho de HLE): salen al
+  // destino como un bc comun. Llegan con todo en ppcState.
+  for (const STVSaltoPendiente& p : m_stv_saltos)
+  {
+    for (const FixupBranch& f : p.saltos)
+      SetJumpTarget(f);
+    js.downcountAmount = p.base_dc;
+    WriteExit(m_code_buffer[p.destino].address);
+  }
+  m_stv_saltos.clear();
 
   // STV_GC_AUDITA_x: lo que se emite despues de la ultima instruccion (vaciado y salida de un bloque cortado).
   if (stv_aud && !stv_aud->empty())

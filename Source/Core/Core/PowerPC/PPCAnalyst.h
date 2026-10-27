@@ -51,6 +51,10 @@ struct CodeOp  // 16B
   bool canCauseException = false;
   bool skipLRStack = false;
   bool skip = false;  // followed BL-s for example
+  // STV_GC_SALTOINT_x: bc condicional hacia adelante dentro del bloque: indice de la instruccion destino (-1: no).
+  s16 stvSaltoA = -1;
+  // STV_GC_SALTOINT_x: destino de un salto interno (etiqueta): no se reordena ni se fusiona a traves de ella.
+  bool stvEtiqueta = false;
   BitSet8 crWillBeRead;
   BitSet8 crWillBeWritten;
   BitSet8 crDiscardable;
@@ -178,6 +182,9 @@ public:
     // STV_GC_VOLATIL_x: sin memcheck una carga o un guardado no sale del bloque: no corta el analisis de registros
     // descartables.
     OPTION_STV_LSU_SIN_EXCEPCION = (1 << 29),
+    // STV_GC_SALTOINT_x: un bc condicional hacia una instruccion posterior del mismo bloque (direcciones contiguas)
+    // salta adentro en vez de salir: el destino no se compila de nuevo como bloque aparte.
+    OPTION_STV_SALTO_INTERNO = (1 << 28),
     // STV_GC_VOLATIL_x: en un bloque que termina en blr incondicional, los registros volatiles del ABI (r0, r5-r12,
     // f0, f5-f13) estan muertos al salir.
     OPTION_STV_VOLATILES_MUERTOS = (1 << 30),

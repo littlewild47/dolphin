@@ -198,6 +198,11 @@ void JitBase::RefreshConfig()
     analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
   else
     analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS);
+  // STV_GC_SALTOINT_x: bit 4 de la misma valvula (exploracion).
+  if (m_stv_volatil & 4)
+    analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_SALTO_INTERNO);
+  else
+    analyzer.ClearOption(PPCAnalyst::PPCAnalyzer::OPTION_STV_SALTO_INTERNO);
   // STV_GC_FIFO3_v1: los caminos de C++ (FastCheckGatherPipe, CheckGatherPipe, Advance, PI) leen el mismo umbral; el
   // aviso en lote va prendido con el umbral por encima de 32. Se fijan aca, en el mismo ClearCache que recompila.
   GPFifo::g_stv_gp_umbral_c = m_stv_gp_umbral;
@@ -358,6 +363,9 @@ bool JitBase::CanMergeNextInstructions(int count) const
     {
       return false;
     }
+    // STV_GC_SALTOINT_x: una etiqueta es un punto de entrada: no se fusiona con lo anterior.
+    if (js.op[i].stvEtiqueta)
+      return false;
   }
   return true;
 }

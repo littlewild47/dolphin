@@ -8,6 +8,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -247,6 +248,9 @@ bool PPCAnalyzer::CanSwapAdjacentOps(const CodeOp& a, const CodeOp& b) const
   if (a.canCauseException || b.canCauseException)
     return false;
   if (a.canEndBlock || b.canEndBlock)
+    return false;
+  // STV_GC_SALTOINT_x: nada cruza una etiqueta (ni la etiqueta se mueve).
+  if (a.stvEtiqueta || b.stvEtiqueta)
     return false;
   if (a_flags & (FL_TIMER | FL_NO_REORDER | FL_SET_OE))
     return false;
@@ -985,6 +989,34 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
 
   block->m_num_instructions = num_inst;
 
+  // STV_GC_SALTOINT_x: bc condicional sin LK hacia una instruccion posterior del bloque, con las direcciones contiguas
+  // hasta ella (sin seguir ramas en el medio: el codigo desde el destino es exactamente lo que corre desde ahi). Tope de
+  // 128 instrucciones: el TBZ del salto directo llega a 32 KB.
+  if (HasOption(OPTION_STV_SALTO_INTERNO) && HasOption(OPTION_CONDITIONAL_CONTINUE))
+  {
+    for (u32 i = 0; i + 1 < num_inst; i++)
+    {
+      const UGeckoInstruction in = code[i].inst;
+      if (in.OPCD != 16 || in.LK || code[i].skip || code[i].branchIsIdleLoop)
+        continue;
+      if ((in.BO & BO_DONT_DECREMENT_FLAG) && (in.BO & BO_DONT_CHECK_CONDITION))
+        continue;
+      const u32 destino = code[i].branchTo;
+      if (destino <= code[i].address || destino - code[i].address > 128 * 4)
+        continue;
+      const u32 j = i + (destino - code[i].address) / 4;
+      if (j >= num_inst)
+        continue;
+      bool contiguo = true;
+      for (u32 k = i + 1; k <= j && contiguo; k++)
+        contiguo = code[k].address == code[k - 1].address + 4;
+      if (!contiguo)
+        continue;
+      code[i].stvSaltoA = static_cast<s16>(j);
+      code[j].stvEtiqueta = true;
+    }
+  }
+
   if (block->m_num_instructions > 1)
     ReorderInstructions(block->m_num_instructions, code);
 
@@ -1127,9 +1159,40 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
   // Forward scan, for flags that need the other direction for calculation.
   BitSet32 fprIsSingle, fprIsDuplicated, fprIsStoreSafe;
   BitSet8 gqrUsed, gqrModified;
+  // STV_GC_SALTOINT_x: en una etiqueta vale lo que vale en todos los caminos que llegan (interseccion).
+  std::vector<std::array<BitSet32, 3>> stv_et;
+  std::vector<bool> stv_et_hay;
+  if (HasOption(OPTION_STV_SALTO_INTERNO))
+  {
+    stv_et.resize(block->m_num_instructions);
+    stv_et_hay.resize(block->m_num_instructions, false);
+  }
   for (u32 i = 0; i < block->m_num_instructions; i++)
   {
     CodeOp& op = code[i];
+
+    if (op.stvEtiqueta && !stv_et.empty() && stv_et_hay[i])
+    {
+      fprIsSingle &= stv_et[i][0];
+      fprIsDuplicated &= stv_et[i][1];
+      fprIsStoreSafe &= stv_et[i][2];
+    }
+    if (op.stvSaltoA >= 0 && !stv_et.empty())
+    {
+      // bc no toca FPR: el estado al salir es el de ahora.
+      const u32 j = static_cast<u32>(op.stvSaltoA);
+      if (stv_et_hay[j])
+      {
+        stv_et[j][0] &= fprIsSingle;
+        stv_et[j][1] &= fprIsDuplicated;
+        stv_et[j][2] &= fprIsStoreSafe;
+      }
+      else
+      {
+        stv_et[j] = {fprIsSingle, fprIsDuplicated, fprIsStoreSafe};
+        stv_et_hay[j] = true;
+      }
+    }
 
     op.fprIsSingle = fprIsSingle;
     op.fprIsDuplicated = fprIsDuplicated;

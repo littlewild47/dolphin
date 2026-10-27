@@ -438,6 +438,28 @@ protected:
   void LoadCarry();
   void FlushCarry();
 
+  // STV_GC_SALTOINT_x: saltos internos hacia adelante (bc a una instruccion posterior del mismo bloque). El camino
+  // tomado vacia en MaintainState y salta a la etiqueta; en la etiqueta el camino de largo vacia en Full, asi los dos
+  // llegan con todo en ppcState (los fijos en su registro). El downcount queda en la base del primer salto: el de largo
+  // descuenta lo suyo en la etiqueta, y un salto posterior descuenta su diferencia antes de saltar.
+  struct STVSaltoPendiente
+  {
+    u32 destino;
+    std::vector<Arm64Gen::FixupBranch> saltos;
+    u32 base_dc;
+    bool fp;
+    u32 fifo;
+    bool fifo_obligado;
+  };
+  std::vector<STVSaltoPendiente> m_stv_saltos;
+  bool STVSaltoInterno(Arm64Gen::FixupBranch* unica, Arm64Gen::ARM64Reg tmp);
+  void STVEtiqueta(u32 indice);
+  void STVRestarDowncount(u32 ciclos);
+  // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del
+  // grafo de bloques tiene una arista a una direccion <= la de su bloque de origen (o pasa por el despachador), y ahi
+  // se sigue chequeando; el downcount se descuenta igual en todas.
+  bool STVCorto(u32 destino) const { return (m_stv_volatil & 16) && destino > js.blockStart; }
+
   void reg_imm(u32 d, u32 a, u32 value,
                void (ARM64XEmitter::*op)(Arm64Gen::ARM64Reg, Arm64Gen::ARM64Reg, u64,
                                          Arm64Gen::ARM64Reg),

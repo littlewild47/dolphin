@@ -487,6 +487,94 @@ void JitArm64::FloatCompare(UGeckoInstruction inst, bool upper)
   const u32 b = inst.FB;
   const int crf = inst.CRFD;
 
+  // STV_GC_FCMP_x: sin FPRF. (1) El CR sale sin ramas de las banderas de FCMP: EQ (Z), LT (N), GT (C, !Z), desordenado
+  // (C, V); la condicion LT (N != V) es verdadera en LT y en desordenado. Valores del CR emulado: EQ 0, GT 1, LT
+  // ~(1 << SO), desordenado ~(1 << LT). (2) Con FZ y singles que pueden ser subnormales, en vez de convertir cada
+  // entrada a doble con su chequeo (72 B por fcmpo), se compara en simple: aplanar a cero es monotono, asi que un
+  // resultado distinto de "igual" ya es el exacto; solo "igual" va al codigo lejano, que compara exacto por enteros
+  // (signo y magnitud a complemento a dos: +0 y -0 dan lo mismo). Un NaN no se aplana: el desordenado es exacto.
+  if (!fprf && (m_stv_volatil & 8))
+  {
+    const bool ftz = !cpu_info.bAFP && (!js.fpr_is_store_safe[a] || !js.fpr_is_store_safe[b]);
+    const bool sing = fpr.IsSingle(a, !upper) && fpr.IsSingle(b, !upper);
+    const RegType lower_t = sing ? RegType::LowerPairSingle : RegType::LowerPair;
+    const RegType upper_t = sing ? RegType::Single : RegType::Register;
+    const auto enc = sing ? EncodeRegToSingle : EncodeRegToDouble;
+    const auto penc = sing ? EncodeRegToDouble : EncodeRegToQuad;
+
+    const bool up_a = upper && !js.op->fprIsDuplicated[a];
+    const bool up_b = upper && !js.op->fprIsDuplicated[b];
+    ARM64Reg VA = enc(fpr.R(a, up_a ? upper_t : lower_t));
+    ARM64Reg VB = enc(fpr.R(b, up_b ? upper_t : lower_t));
+
+    gpr.BindCRToRegister(crf, false);
+    const ARM64Reg XA = gpr.CR(crf);
+    auto WT = gpr.GetScopedReg();
+    auto WU = gpr.GetScopedReg();
+    const ARM64Reg XT = EncodeRegTo64(WT);
+
+    Arm64FPRCache::ScopedARM64Reg V0Q;
+    Arm64FPRCache::ScopedARM64Reg V1Q;
+    if (up_a)
+    {
+      V0Q = fpr.GetScopedReg();
+      m_float_emit.DUP(sing ? 32 : 64, penc(V0Q), penc(VA), 1);
+      VA = enc(V0Q);
+    }
+    if (up_b)
+    {
+      if (a == b)
+      {
+        VB = VA;
+      }
+      else
+      {
+        V1Q = fpr.GetScopedReg();
+        m_float_emit.DUP(sing ? 32 : 64, penc(V1Q), penc(VB), 1);
+        VB = enc(V1Q);
+      }
+    }
+
+    m_float_emit.FCMP(VA, VB);
+    const bool exacto = ftz && sing && a != b;
+    FixupBranch lejos;
+    if (exacto)
+    {
+      FixupBranch distinto = B(CC_NEQ);
+      lejos = B();
+      SetJumpTarget(distinto);
+    }
+    MOVN(XA, 1 << (PowerPC::CR_EMU_SO_BIT - 48), ShiftAmount::Shift48);
+    MOVN(XT, 1 << (PowerPC::CR_EMU_LT_BIT - 48), ShiftAmount::Shift48);
+    CSEL(XA, XT, XA, CC_VS);
+    CSINC(XA, XA, ARM64Reg::ZR, CC_LT);
+    CSEL(XA, ARM64Reg::ZR, XA, CC_EQ);
+    if (exacto)
+    {
+      const u8* fin = GetCodePtr();
+      SwitchToFarCode();
+      SetJumpTarget(lejos);
+      m_float_emit.FMOV(WT, VA);
+      m_float_emit.FMOV(WU, VB);
+      CMP(WT, 0);
+      AND(WT, WT, LogicalImm(0x7FFFFFFF, GPRSize::B32));
+      CNEG(WT, WT, CC_LT);
+      CMP(WU, 0);
+      AND(WU, WU, LogicalImm(0x7FFFFFFF, GPRSize::B32));
+      CNEG(WU, WU, CC_LT);
+      CMP(WT, WU);
+      MOVN(XA, 1 << (PowerPC::CR_EMU_SO_BIT - 48), ShiftAmount::Shift48);
+      CSINC(XA, XA, ARM64Reg::ZR, CC_LT);
+      CSEL(XA, ARM64Reg::ZR, XA, CC_EQ);
+      B(fin);
+      SwitchToNearCode();
+    }
+
+    ASSERT_MSG(DYNA_REC, sing == (fpr.IsSingle(a, !upper) && fpr.IsSingle(b, !upper)),
+               "Register allocation turned singles into doubles in the middle of fcmpX");
+    return;
+  }
+
   // On the GC/Wii CPU, outputs are flushed to zero if FPSCR.NI is set, and inputs are never
   // flushed to zero. Ideally we would emulate FPSCR.NI by setting FPCR.FZ and FPCR.AH, but
   // unfortunately FPCR.AH is a very new feature that we can't rely on (as of 2021). For CPUs
