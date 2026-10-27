@@ -267,7 +267,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           const Core::CPUThreadGuard guard(system);
           const std::string ruta = fmt::format(
               "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/traza-{}.tsv", getpid());
-          JitBase* jit = system.GetJitInterface().GetCore();
+          JitBase* jit = static_cast<JitBase*>(system.GetJitInterface().GetCore());
           std::FILE* f = std::fopen(ruta.c_str(), "w");
           if (f && jit)
           {
