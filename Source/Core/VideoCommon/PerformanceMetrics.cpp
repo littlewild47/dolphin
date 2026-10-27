@@ -17,6 +17,13 @@
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
 
+namespace PowerPC
+{
+extern u64 g_stv_hw[10];
+extern u32 g_stv_hw_dir[2048];
+extern u32 g_stv_hw_n[2048];
+}  // namespace PowerPC
+
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
 // cuadros, los VI y la velocidad de la emulacion; el cuadro mas largo, los de mas de 50 ms, las compilaciones de
@@ -322,6 +329,48 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_HWCUENTA_x: accesos al camino lento del MMU por segundo y las 6 direcciones de MMIO mas tocadas.
+    {
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+      {
+        using PowerPC::g_stv_hw;
+        using PowerPC::g_stv_hw_dir;
+        using PowerPC::g_stv_hw_n;
+        static u64 h0[10];
+        u64 d[10];
+        for (int i = 0; i < 10; ++i)
+        {
+          d[i] = g_stv_hw[i] - h0[i];
+          h0[i] = g_stv_hw[i];
+        }
+        u32 top[6] = {}, topn[6] = {};
+        for (int i = 0; i < 2048; ++i)
+        {
+          const u32 n = g_stv_hw_n[i];
+          g_stv_hw_n[i] = 0;
+          for (int k = 0; k < 6; ++k)
+            if (n > topn[k])
+            {
+              for (int j = 5; j > k; --j)
+              {
+                topn[j] = topn[j - 1];
+                top[j] = top[j - 1];
+              }
+              topn[k] = n;
+              top[k] = g_stv_hw_dir[i];
+              break;
+            }
+        }
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "hw: lmmio=%llu lefb=%llu ll1=%llu lram=%llu fifo=%llu emmio=%llu eefb=%llu el1=%llu | "
+                            "%08x:%u %08x:%u %08x:%u %08x:%u %08x:%u %08x:%u",
+                            (unsigned long long)d[0], (unsigned long long)d[1], (unsigned long long)d[2],
+                            (unsigned long long)d[3], (unsigned long long)d[5], (unsigned long long)d[6],
+                            (unsigned long long)d[7], (unsigned long long)d[8], top[0], topn[0], top[1],
+                            topn[1], top[2], topn[2], top[3], topn[3], top[4], topn[4], top[5], topn[5]);
+      }
     }
     char v[PROP_VALUE_MAX] = {};
     if (__system_property_get("debug.stv.gc.metricas", v) > 0 && v[0] == '1')

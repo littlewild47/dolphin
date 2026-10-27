@@ -189,6 +189,22 @@ static void EFB_Write(u32 data, u32 addr)
   }
 }
 
+// STV_GC_HWCUENTA_x (instrumento): accesos que llegan al camino lento por clase y las direcciones de MMIO mas tocadas.
+// 0 lect MMIO, 1 lect EFB, 2 lect L1, 3 lect RAM, 5 escr gather pipe, 6 escr MMIO, 7 escr EFB, 8 escr L1.
+u64 g_stv_hw[10];
+u32 g_stv_hw_dir[2048];
+u32 g_stv_hw_n[2048];
+static inline void STVHwDir(u32 a)
+{
+  const u32 i = (a >> 1) & 2047;
+  if (g_stv_hw_dir[i] != a)
+  {
+    g_stv_hw_dir[i] = a;
+    g_stv_hw_n[i] = 0;
+  }
+  ++g_stv_hw_n[i];
+}
+
 template <XCheckTLBFlag flag, std::unsigned_integral T, bool never_translate>
 T MMU::ReadFromHardware(u32 em_address)
 {
@@ -234,10 +250,13 @@ T MMU::ReadFromHardware(u32 em_address)
   {
     if (em_address < 0x0c000000)
     {
+      ++g_stv_hw[1];
       return EFB_Read(em_address);
     }
     else
     {
+      ++g_stv_hw[0];
+      STVHwDir(em_address);
       return static_cast<T>(
           m_memory.GetMMIOMapping()->Read<std::make_unsigned_t<T>>(m_system, em_address));
     }
@@ -247,6 +266,7 @@ T MMU::ReadFromHardware(u32 em_address)
   if (m_memory.GetL1Cache() && (em_address >> 28) == 0xE &&
       (em_address < (0xE0000000 + m_memory.GetL1CacheSize())))
   {
+    ++g_stv_hw[2];
     T value;
     std::memcpy(&value, &m_memory.GetL1Cache()[em_address & 0x0FFFFFFF], sizeof(T));
     return bswap(value);
@@ -256,6 +276,7 @@ T MMU::ReadFromHardware(u32 em_address)
   {
     // Handle RAM; the masking intentionally discards bits (essentially creating
     // mirrors of memory).
+    ++g_stv_hw[3];
     T value;
     em_address &= m_memory.GetRamMask();
 
@@ -370,6 +391,7 @@ void MMU::WriteToHardware(u32 em_address, const u32 data, const u32 size)
   if (flag == XCheckTLBFlag::Write &&
       (em_address & 0xFFFFF000) == GPFifo::GATHER_PIPE_PHYSICAL_ADDRESS)
   {
+    ++g_stv_hw[5];
     switch (size)
     {
     case 1:
@@ -397,9 +419,12 @@ void MMU::WriteToHardware(u32 em_address, const u32 data, const u32 size)
   {
     if (em_address < 0x0c000000)
     {
+      ++g_stv_hw[7];
       EFB_Write(data, em_address);
       return;
     }
+    ++g_stv_hw[6];
+    STVHwDir(em_address | 1);
 
     switch (size)
     {
@@ -429,6 +454,7 @@ void MMU::WriteToHardware(u32 em_address, const u32 data, const u32 size)
   if (m_memory.GetL1Cache() && (em_address >> 28 == 0xE) &&
       (em_address < (0xE0000000 + m_memory.GetL1CacheSize())))
   {
+    ++g_stv_hw[8];
     std::memcpy(&m_memory.GetL1Cache()[em_address & 0x0FFFFFFF], &swapped_data, size);
     return;
   }
