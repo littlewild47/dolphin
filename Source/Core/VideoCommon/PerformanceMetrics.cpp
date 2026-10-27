@@ -290,6 +290,14 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_TRAZA_x: FPSCR del juego (NI = bit 2) con las metricas.
+    {
+      char mv[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "fpscr=%08x ni=%d",
+                            Core::System::GetInstance().GetPPCState().fpscr.Hex,
+                            (int)Core::System::GetInstance().GetPPCState().fpscr.NI.Value());
+    }
     // STV_GC_CEROCERCA_v1: debug.stv.gc.cerocerca = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char cc[PROP_VALUE_MAX] = {};
