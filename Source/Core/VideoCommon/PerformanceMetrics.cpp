@@ -32,6 +32,8 @@
 // backend dibuje (backend Null) ni de capturar la pantalla.
 #include <android/log.h>
 #include <sys/system_properties.h>
+#include <dirent.h>
+#include <sched.h>
 #endif
 
 PerformanceMetrics::PerformanceMetrics()
@@ -136,6 +138,40 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    // STV_GC_AFIN_x: debug.stv.gc.afin = 1 fija el hilo de CPU solo en cpu7 (un nucleo grande para el solo: sin
+    // migraciones que enfrien su L1i/L2) y todo el resto del proceso en cpu0-6, cada segundo (tambien los hilos nuevos,
+    // como los del driver de la GPU); 0 los suelta. Sin la propiedad manda [Core] STVAfinidad.
+    {
+      char af[PROP_VALUE_MAX] = {};
+      const bool hay = __system_property_get("debug.stv.gc.afin", af) > 0 && (af[0] == '0' || af[0] == '1');
+      const bool on = hay ? af[0] == '1' : Config::Get(Config::MAIN_STV_AFINIDAD);
+      static bool stv_af_prev = false;
+      const int cpu_tid = Core::g_stv_tid_cpu.load();
+      if ((on || stv_af_prev) && cpu_tid != 0)
+      {
+        if (DIR* d = opendir("/proc/self/task"))
+        {
+          while (dirent* e = readdir(d))
+          {
+            const int tid = atoi(e->d_name);
+            if (tid <= 0)
+              continue;
+            cpu_set_t m;
+            CPU_ZERO(&m);
+            for (int c = 0; c < 8; c++)
+            {
+              if (!on || (tid == cpu_tid ? c == 7 : c != 7))
+                CPU_SET(c, &m);
+            }
+            sched_setaffinity(tid, sizeof(m), &m);
+          }
+          closedir(d);
+        }
+        if (on != stv_af_prev)
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "afinidad: %s (cpu %d)", on ? "cpu7" : "suelta", cpu_tid);
+        stv_af_prev = on;
+      }
+    }
     {
       // STV_GC_FIFO_v1: debug.stv.gc.fifo = 0 vuelve al camino original de las rafagas del FIFO.
       char fv[PROP_VALUE_MAX] = {};

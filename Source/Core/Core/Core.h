@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -23,6 +24,9 @@ struct WindowSystemInfo;
 
 namespace Core
 {
+// STV_GC_AFIN_x: tid del hilo de CPU (0 hasta que arranca).
+extern std::atomic<int> g_stv_tid_cpu;
+
 class System;
 
 bool GetIsThrottlerTempDisabled();
