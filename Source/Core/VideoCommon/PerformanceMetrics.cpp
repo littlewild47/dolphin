@@ -68,6 +68,10 @@ extern bool g_stv_fifo_lote;    // STV_GC_FIFO3_v1
 }
 static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
+namespace DSP::HLE
+{
+extern std::atomic<bool> g_stv_sin_audio;  // STV_GC_SINAUDIO_x (Zelda.cpp)
+}
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
 static TimePoint s_stv_ultimo_cuadro{};
 
@@ -138,6 +142,13 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     const double stv_fmax = s_stv_max_us.exchange(0) / 1000.0;
     const u32 stv_n50 = s_stv_n50.exchange(0), stv_pipes = g_stv_pipes.exchange(0);
     const double stv_pipems = g_stv_pipes_us.exchange(0) / 1000.0;
+    // STV_GC_SINAUDIO_x (instrumento): debug.stv.gc.sinaudio = 1 saltea el render de las voces de Zelda HLE (los avisos
+    // al juego siguen); mide cuanto del hilo de CPU es el audio. El juego queda mudo.
+    {
+      char sa[PROP_VALUE_MAX] = {};
+      DSP::HLE::g_stv_sin_audio.store(__system_property_get("debug.stv.gc.sinaudio", sa) > 0 && sa[0] == '1',
+                                      std::memory_order_relaxed);
+    }
     // STV_GC_AFIN_x: debug.stv.gc.afin = 1 fija el hilo de CPU solo en cpu7 (un nucleo grande para el solo: sin
     // migraciones que enfrien su L1i/L2) y todo el resto del proceso en cpu0-6, cada segundo (tambien los hilos nuevos,
     // como los del driver de la GPU); 0 los suelta. Sin la propiedad manda [Core] STVAfinidad.

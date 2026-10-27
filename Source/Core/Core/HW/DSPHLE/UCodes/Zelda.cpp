@@ -1,6 +1,7 @@
 // Copyright 2008 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include "Core/HW/DSPHLE/UCodes/Zelda.h"
 
 #include <algorithm>
@@ -615,6 +616,8 @@ void ZeldaUCode::SendCommandAck(CommandAck ack_type, u16 sync_value)
   }
 }
 
+std::atomic<bool> g_stv_sin_audio{false};  // STV_GC_SINAUDIO_x (instrumento; lo fija PerformanceMetrics.cpp)
+
 void ZeldaUCode::RenderAudio()
 {
   if (!RenderingInProgress())
@@ -622,10 +625,11 @@ void ZeldaUCode::RenderAudio()
     WARN_LOG_FMT(DSPHLE, "Trying to render audio while no rendering should be happening.");
     return;
   }
+  const bool stv_sin = g_stv_sin_audio.load(std::memory_order_relaxed);
 
   while (m_rendering_curr_frame < m_rendering_requested_frames)
   {
-    if (m_rendering_curr_voice == 0)
+    if (m_rendering_curr_voice == 0 && !stv_sin)
       m_renderer.PrepareFrame();
 
     // TODO: Find out the actual hardware behavior for the case where
@@ -642,7 +646,7 @@ void ZeldaUCode::RenderAudio()
       // Test the sync flag for this voice, skip it if not set.
       u16 flags = m_sync_voice_skip_flags[m_rendering_curr_voice >> 4];
       u8 bit = 0xF - (m_rendering_curr_voice & 0xF);
-      if (flags & (1 << bit))
+      if ((flags & (1 << bit)) && !stv_sin)
         m_renderer.AddVoice(m_rendering_curr_voice);
 
       m_rendering_curr_voice++;
@@ -651,7 +655,8 @@ void ZeldaUCode::RenderAudio()
     if (!(m_flags & LIGHT_PROTOCOL))
       SendCommandAck(CommandAck::STANDARD, 0xFF00 | m_rendering_curr_frame);
 
-    m_renderer.FinalizeFrame();
+    if (!stv_sin)
+      m_renderer.FinalizeFrame();
 
     m_rendering_curr_voice = 0;
     m_sync_max_voice_id = 0;
