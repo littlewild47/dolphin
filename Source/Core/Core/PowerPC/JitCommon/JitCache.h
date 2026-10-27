@@ -150,7 +150,7 @@ class JitBaseBlockCache
 public:
   // The size of the fast map is determined like this:
   // ((4 GiB guest memory space) / (4-byte alignment) * sizeof(JitBlock*)) << (3 feature flag bits)
-  static constexpr u64 FAST_BLOCK_MAP_SIZE = 0x10'0000'0000;
+  static constexpr u64 FAST_BLOCK_MAP_SIZE = 0x20'0000'0000;  // STV_GC_FFFP_x: un bit mas de banderas
   static constexpr u32 FAST_BLOCK_MAP_FALLBACK_ELEMENTS = 0x10000;
   static constexpr u32 FAST_BLOCK_MAP_FALLBACK_MASK = FAST_BLOCK_MAP_FALLBACK_ELEMENTS - 1;
 

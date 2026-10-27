@@ -633,8 +633,9 @@ void JitArm64::MSRUpdated(u32 msr)
   static_assert(UReg_MSR{}.IR.StartBit() == 5);
   static_assert(FEATURE_FLAG_MSR_DR == 1 << 0);
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
-  const u32 other_feature_flags = m_ppc_state.feature_flags & ~0x3;
-  const u32 feature_flags = other_feature_flags | ((msr >> 4) & 0x3);
+  const u32 other_feature_flags = m_ppc_state.feature_flags & ~(0x3 | STV_FEATURE_FLAG_MSR_FP);
+  const u32 feature_flags = other_feature_flags | ((msr >> 4) & 0x3) |
+                            ((g_stv_ff_fp && UReg_MSR(msr).FP) ? STV_FEATURE_FLAG_MSR_FP : 0);
   if (feature_flags == 0)
   {
     STR(IndexType::Unsigned, ARM64Reg::WZR, PPC_REG, PPCSTATE_OFF(feature_flags));
@@ -680,10 +681,16 @@ void JitArm64::MSRUpdated(ARM64Reg msr)
   static_assert(UReg_MSR{}.IR.StartBit() == 5);
   static_assert(FEATURE_FLAG_MSR_DR == 1 << 0);
   static_assert(FEATURE_FLAG_MSR_IR == 1 << 1);
-  const u32 other_feature_flags = m_ppc_state.feature_flags & ~0x3;
+  const u32 other_feature_flags = m_ppc_state.feature_flags & ~(0x3 | STV_FEATURE_FLAG_MSR_FP);
   UBFX(WA, msr, 4, 2);
   if (other_feature_flags != 0)
     ORR(WA, WA, LogicalImm(other_feature_flags, GPRSize::B32));
+  if (g_stv_ff_fp)  // STV_GC_FFFP_x: MSR.FP (bit 13) -> bandera bit 3
+  {
+    auto WF = gpr.GetScopedReg();
+    UBFX(WF, msr, 13, 1);
+    ORR(WA, WA, WF, ArithOption(WF, ShiftType::LSL, 3));
+  }
   STR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(feature_flags));
 
   // Call PageTableUpdatedFromJit if needed
@@ -1670,6 +1677,12 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         SetJumpTarget(no_breakpoint);
       }
 
+      // STV_GC_FFFP_x: el bloque se compilo con MSR.FP = 1 (bandera de bloque): no hace falta el chequeo.
+      if ((opinfo->flags & FL_USE_FPU) && !js.firstFPInstructionFound && g_stv_ff_fp &&
+          (m_ppc_state.feature_flags & STV_FEATURE_FLAG_MSR_FP))
+      {
+        js.firstFPInstructionFound = true;
+      }
       if ((opinfo->flags & FL_USE_FPU) && !js.firstFPInstructionFound)
       {
         FixupBranch b1;

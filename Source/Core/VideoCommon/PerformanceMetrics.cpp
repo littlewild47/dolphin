@@ -240,13 +240,13 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
-    // STV_GC_VOLATIL_x: debug.stv.gc.volatil = 0..255 (bits; 4 = STV_GC_SALTOINT_x, 8 = STV_GC_FCMP_x, 16 = STV_GC_CORTO_x, 32 = STV_GC_BLRCORTO_x, 64 = STV_GC_DIRUXTW_x, 128 = STV_GC_LLAMADA_x; vacia la cache
+    // STV_GC_VOLATIL_x: debug.stv.gc.volatil = 0..511 (bits; 4 = STV_GC_SALTOINT_x, 8 = STV_GC_FCMP_x, 16 = STV_GC_CORTO_x, 32 = STV_GC_BLRCORTO_x, 64 = STV_GC_DIRUXTW_x, 128 = STV_GC_LLAMADA_x, 256 = STV_GC_FFFP_x; vacia la cache
     // del JIT).
     {
       char vo[PROP_VALUE_MAX] = {};
       static int stv_vo_prev = -1;
       if (__system_property_get("debug.stv.gc.volatil", vo) > 0 && vo[0] >= '0' && vo[0] <= '9' &&
-          atoi(vo) <= 255)
+          atoi(vo) <= 511)
       {
         const int n = atoi(vo);
         if (n != stv_vo_prev)
