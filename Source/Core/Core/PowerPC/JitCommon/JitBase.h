@@ -171,6 +171,7 @@ protected:
 public:
   bool m_stv_fifo_reg = true;  // STV_GC_FIFOREG_v1 (la lee GPFifo: publica)
   bool m_stv_cero = true;  // STV_GC_CERO_v1
+  bool m_stv_cero_cerca = true;  // STV_GC_CEROCERCA_v1
   bool m_stv_fifo_rut = true;  // STV_GC_FIFORUT_v1
   bool m_stv_gqr = true;       // STV_GC_GQR_v1
 protected:
@@ -187,7 +188,7 @@ protected:
   bool m_cleanup_after_stackfault = false;
   u8* m_stack_guard = nullptr;
 
-  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 31> JIT_SETTINGS;
+  static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 32> JIT_SETTINGS;
 
   bool DoesConfigNeedRefresh() const;
   void RefreshConfig();
