@@ -119,6 +119,10 @@ void JitArm64::lfXX(UGeckoInstruction inst)
         is_immediate = true;
         imm_addr = gpr.GetImm(a) + offset;
       }
+      else if (a && STVBasePreparar(a, gpr.R(a), offset, BackPatchInfo::GetFlagSize(flags) / 8, false))
+      {
+        // STV_GC_BASE_x
+      }
       else if (a)
       {
         ADDI2R(addr_reg, gpr.R(a), offset, addr_reg);
@@ -152,7 +156,7 @@ void JitArm64::lfXX(UGeckoInstruction inst)
     }
   }
 
-  ARM64Reg XA = EncodeRegTo64(addr_reg);
+  ARM64Reg XA = m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
 
   if (is_immediate)
     MOVI2R(XA, imm_addr);
@@ -318,6 +322,10 @@ void JitArm64::stfXX(UGeckoInstruction inst)
         is_immediate = true;
         imm_addr = gpr.GetImm(a) + offset;
       }
+      else if (a && STVBasePreparar(a, gpr.R(a), offset, BackPatchInfo::GetFlagSize(flags) / 8, false))
+      {
+        // STV_GC_BASE_x
+      }
       else if (a)
       {
         ADDI2R(addr_reg, gpr.R(a), offset, addr_reg);
@@ -351,7 +359,7 @@ void JitArm64::stfXX(UGeckoInstruction inst)
     }
   }
 
-  ARM64Reg XA = EncodeRegTo64(addr_reg);
+  ARM64Reg XA = m_stv_base_usar ? ARM64Reg::X25 : EncodeRegTo64(addr_reg);  // STV_GC_BASE_x
 
   bool addr_reg_set = !is_immediate;
   const auto set_addr_reg_if_needed = [&] {
