@@ -35,6 +35,20 @@ struct STVAuditaOp
 extern bool g_stv_audita;
 extern std::unordered_map<u32, std::vector<STVAuditaOp>> g_stv_audita_bloques;
 
+// STV_GC_IC_x
+struct STVICSitioJit
+{
+  u32 destino = 0;
+  u32 racha = 0;
+  u32 llamadas = 0;
+  u8 estado = 0;  // 0 aprendiendo, 1 adivinado, 2 mega
+};
+extern std::unordered_map<u32, STVICSitioJit> g_stv_ic_sitios;
+u32 STVICAprender(u32 sitio, u32 destino);
+// STV_GC_ICCUENTA_x
+void STVICRegistrar(u32 sitio, u32 destino);
+void STVICVolcar(const char* ruta);
+
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {
 public:

@@ -246,7 +246,7 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       char vo[PROP_VALUE_MAX] = {};
       static int stv_vo_prev = -1;
       if (__system_property_get("debug.stv.gc.volatil", vo) > 0 && vo[0] >= '0' && vo[0] <= '9' &&
-          atoi(vo) <= 511)
+          atoi(vo) <= 2047)
       {
         const int n = atoi(vo);
         if (n != stv_vo_prev)
@@ -347,6 +347,22 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
             __android_log_print(ANDROID_LOG_INFO, "STVGC", "audita: %llu lineas en %s", (unsigned long long)n,
                                 ruta.c_str());
           }
+        }
+      }
+    }
+    // STV_GC_ICCUENTA_x (instrumento): debug.stv.gc.iccuenta = "d<n>" vuelca files/perf/ic-<pid>.tsv y vacia la cuenta.
+    {
+      char ic[PROP_VALUE_MAX] = {};
+      static std::string stv_ic_prev;
+      if (__system_property_get("debug.stv.gc.iccuenta", ic) > 0 && stv_ic_prev != ic)
+      {
+        stv_ic_prev = ic;
+        if (ic[0] == 'd')
+        {
+          const std::string ruta = fmt::format(
+              "/storage/emulated/0/Android/data/org.dolphinemu.dolphinemu/files/perf/ic-{}.tsv", getpid());
+          STVICVolcar(ruta.c_str());
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "iccuenta: %s", ruta.c_str());
         }
       }
     }

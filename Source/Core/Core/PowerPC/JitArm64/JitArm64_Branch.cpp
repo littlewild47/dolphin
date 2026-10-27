@@ -322,6 +322,62 @@ void JitArm64::bcctrx(UGeckoInstruction inst)
     }
     gpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
     fpr.Flush(FlushMode::Full, ARM64Reg::INVALID_REG);
+    // STV_GC_IC_x
+    if (m_stv_volatil & 1024)
+    {
+      const STVICSitioJit* e = nullptr;
+      if (auto it = g_stv_ic_sitios.find(js.compilerPC); it != g_stv_ic_sitios.end())
+        e = &it->second;
+      if (e && e->estado == 1)
+      {
+        const u32 adivinado = e->destino;
+        FixupBranch fallo;
+        {
+          auto WT = gpr.GetScopedReg();
+          MOVI2R(WT, adivinado);
+          EOR(WT, WT, WD);
+          fallo = CBNZ(WT);
+        }
+        m_stv_lr_en_salida = inst.LK_3;
+        WriteExit(adivinado, inst.LK_3, js.compilerPC + 4);
+        SetJumpTarget(fallo);
+        WriteExit(WD, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+        m_stv_lr_en_salida = false;
+        return;
+      }
+      if (!e || e->estado == 0)
+      {
+        if (WD != DISPATCHER_PC)
+          MOV(DISPATCHER_PC, WD);
+        ABI_CallFunction(&STVICAprender, js.compilerPC, DISPATCHER_PC);
+        FixupBranch invalidado = CBNZ(ARM64Reg::W0);
+        m_stv_lr_en_salida = inst.LK_3;
+        WriteExit(DISPATCHER_PC, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+        m_stv_lr_en_salida = false;
+        // El bloque quedo destruido: sin marco nuevo en la pila de BLR (y sin los viejos), por el despachador.
+        SetJumpTarget(invalidado);
+        if (inst.LK_3)
+        {
+          MOVI2R(ARM64Reg::W1, js.compilerPC + 4);
+          STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
+        }
+        ResetStack();
+        Cleanup();
+        DoDownCount();
+        B(dispatcher);
+        return;
+      }
+    }
+    if (m_stv_volatil & 512)  // STV_GC_ICCUENTA_x (instrumento)
+    {
+      if (WD != DISPATCHER_PC)
+        MOV(DISPATCHER_PC, WD);
+      ABI_CallFunction(&STVICRegistrar, js.compilerPC, DISPATCHER_PC);
+      m_stv_lr_en_salida = inst.LK_3;
+      WriteExit(DISPATCHER_PC, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
+      m_stv_lr_en_salida = false;
+      return;
+    }
     m_stv_lr_en_salida = inst.LK_3;
     WriteExit(WD, inst.LK_3, js.compilerPC + 4, ARM64Reg::INVALID_REG);
     m_stv_lr_en_salida = false;

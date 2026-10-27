@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -388,6 +389,86 @@ void JitArm64::DoDownCount()
   STR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF(downcount));
 }
 
+// STV_GC_ICCUENTA_x (instrumento, bit 512 con el 128): por sitio de bcctr, llamadas, destinos distintos y aciertos que
+// tendria una cache en linea de 1 y de 2 destinos (LRU). Lo escribe el CPU y lo vuelca el hilo de metricas: mutex.
+namespace
+{
+struct STVICSitio
+{
+  u64 n = 0, h1 = 0, h2 = 0;
+  u32 a = 0, b = 0;
+  std::vector<u32> dist;
+};
+std::mutex s_stv_ic_mutex;
+std::unordered_map<u32, STVICSitio> s_stv_ic;
+}  // namespace
+
+void STVICRegistrar(u32 sitio, u32 destino)
+{
+  std::lock_guard lk(s_stv_ic_mutex);
+  STVICSitio& e = s_stv_ic[sitio];
+  ++e.n;
+  if (e.a == destino)
+  {
+    ++e.h1;
+    ++e.h2;
+  }
+  else
+  {
+    if (e.b == destino)
+      ++e.h2;
+    e.b = e.a;
+    e.a = destino;
+  }
+  if (e.dist.size() < 64 && std::ranges::find(e.dist, destino) == e.dist.end())
+    e.dist.push_back(destino);
+}
+
+void STVICVolcar(const char* ruta)
+{
+  std::lock_guard lk(s_stv_ic_mutex);
+  if (std::FILE* f = std::fopen(ruta, "w"))
+  {
+    for (const auto& [sitio, e] : s_stv_ic)
+      std::fprintf(f, "%08x\t%llu\t%zu\t%llu\t%llu\n", sitio, (unsigned long long)e.n, e.dist.size(),
+                   (unsigned long long)e.h1, (unsigned long long)e.h2);
+    std::fclose(f);
+  }
+  s_stv_ic.clear();
+}
+
+// STV_GC_IC_x (bit 1024 con el 128): cache en linea de bcctr con aprendizaje. Un sitio sin decision llama a
+// STVICAprender en cada ejecucion; con 16 destinos iguales seguidos queda ADIVINADO (el bloque se recompila con el destino
+// como constante: si coincide, salida enlazada normal; si no, el despachador), con 256 llamadas sin eso queda MEGA (se
+// recompila sin aprender). Al decidir se invalida el bloque del sitio y devuelve 1: ese camino descarta la pila de BLR y
+// sale sin empujar marco (un retorno a un bloque destruido caeria en codigo liberado). Solo el hilo de CPU: sin mutex.
+std::unordered_map<u32, STVICSitioJit> g_stv_ic_sitios;
+
+u32 STVICAprender(u32 sitio, u32 destino)
+{
+  STVICSitioJit& e = g_stv_ic_sitios[sitio];
+  if (e.estado != 0)
+    return 0;
+  ++e.llamadas;
+  if (destino == e.destino)
+  {
+    ++e.racha;
+  }
+  else
+  {
+    e.destino = destino;
+    e.racha = 1;
+  }
+  if (e.racha >= 16)
+    e.estado = 1;
+  else if (e.llamadas >= 256)
+    e.estado = 2;
+  else
+    return 0;
+  Core::System::GetInstance().GetJitInterface().InvalidateICache(sitio, 4, true);
+  return 1;
+}
+
 // STV_GC_SALTOINT_x: descuenta ciclos sin salir (W0/W1 de temporales: se llama con todo vaciado).
 void JitArm64::STVRestarDowncount(u32 ciclos)
 {
@@ -734,6 +815,9 @@ void JitArm64::WriteExit(u32 destination, bool LK, u32 exit_address_after_return
     if (exit_address_after_return_reg == ARM64Reg::INVALID_REG)
     {
       MOVI2R(ARM64Reg::X1, feature_flags << 32 | exit_address_after_return);
+      // STV_GC_IC_x: los 32 bits bajos son el LR de bcctrl (salida enlazada al destino adivinado).
+      if (m_stv_lr_en_salida)
+        STR(IndexType::Unsigned, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_SPR(SPR_LR));
     }
     else if (feature_flags == 0)
     {
