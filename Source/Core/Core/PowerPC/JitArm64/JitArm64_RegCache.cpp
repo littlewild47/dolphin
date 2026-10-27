@@ -3,6 +3,10 @@
 
 #include "Core/PowerPC/JitArm64/JitArm64_RegCache.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #include <algorithm>
 #include <cstddef>
 #include <vector>
@@ -547,6 +551,11 @@ void Arm64GPRCache::BindForWrite(size_t index, bool will_read, bool will_write)
     }
     else
     {
+#ifdef __ANDROID__
+      if (will_read && !reg.IsInPPCState())
+        __android_log_print(ANDROID_LOG_ERROR, "STVGC", "descartado leido: indice %zu pc %08x",
+                            index, m_jit->js.compilerPC);
+#endif
       ASSERT_MSG(DYNA_REC, !will_read || reg.IsInPPCState(), "Attempted to load a discarded value");
       const ARM64Reg host_reg = bitsize != 64 ? GetReg() : EncodeRegTo64(GetReg());
       reg.Load(host_reg);
