@@ -102,6 +102,8 @@ const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 31> JitB
     {&JitBase::m_stv_fifo_reg, &Config::MAIN_STV_FIFO_REG},
     // STV_GC_CERO_v1
     {&JitBase::m_stv_cero, &Config::MAIN_STV_CERO},
+    // STV_GC_CEROCERCA_x
+    {&JitBase::m_stv_cero_cerca, &Config::MAIN_STV_CERO_CERCA},
     // STV_GC_FIFORUT_v1
     {&JitBase::m_stv_fifo_rut, &Config::MAIN_STV_FIFO_RUT},
     // STV_GC_GQR_v1

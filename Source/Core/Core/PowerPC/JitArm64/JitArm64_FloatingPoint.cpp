@@ -797,11 +797,21 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
   // (This check unfortunately also catches zeroes)
 
   FixupBranch fast;
+  std::optional<FixupBranch> stv_cerca;
   if (scratch_reg != ARM64Reg::INVALID_REG)
   {
     m_float_emit.FABS(EncodeRegToSingle(scratch_reg), EncodeRegToSingle(src_reg));
     m_float_emit.FCMP(EncodeRegToSingle(scratch_reg));
     fast = B(CCFlags::CC_GT);
+
+    // STV_GC_CEROCERCA_x: el chequeo de ceros de abajo, aca en el codigo cercano (un 0,0 no viaja al lejano).
+    if (m_stv_cero && m_stv_cero_cerca)
+    {
+      m_float_emit.SHL(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(src_reg), 1);
+      m_float_emit.CMEQ(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(scratch_reg));
+      m_float_emit.FCMP(EncodeRegToSingle(scratch_reg), EncodeRegToSingle(scratch_reg));
+      stv_cerca = B(CCFlags::CC_VS);
+    }
 
     if (switch_to_farcode)
     {
@@ -817,7 +827,7 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
   // (operaciones enteras, que FZ no toca): bits << 1 == 0 -> CMEQ deja la linea en 0xFFFF'FFFF, un NaN para FCMP.
   // Un denormal con FZ puesto no es cero por bits: sigue a la rutina exacta como antes.
   std::optional<FixupBranch> stv_cero;
-  if (m_stv_cero && scratch_reg != ARM64Reg::INVALID_REG)
+  if (m_stv_cero && !m_stv_cero_cerca && scratch_reg != ARM64Reg::INVALID_REG)
   {
     m_float_emit.SHL(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(src_reg), 1);
     m_float_emit.CMEQ(32, EncodeRegToDouble(scratch_reg), EncodeRegToDouble(scratch_reg));
@@ -850,6 +860,8 @@ void JitArm64::ConvertSingleToDoubleLower(size_t guest_reg, ARM64Reg dest_reg, A
     SetJumpTarget(fast);
     if (stv_cero)
       SetJumpTarget(*stv_cero);
+    if (stv_cerca)
+      SetJumpTarget(*stv_cerca);
 
     m_float_emit.FCVT(64, 32, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
 
@@ -876,6 +888,7 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
   // (This check unfortunately also catches zeroes)
 
   FixupBranch fast;
+  std::optional<FixupBranch> stv_cerca;
   if (scratch_reg != ARM64Reg::INVALID_REG)
   {
     // Set each 32-bit element of scratch_reg to 0x0000'0000 or 0xFFFF'FFFF depending on whether
@@ -894,6 +907,22 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
     m_float_emit.FCMP(EncodeRegToDouble(scratch_reg));
     fast = B(CCFlags::CC_VS);
 
+    // STV_GC_CEROCERCA_x: el chequeo de ceros de abajo, aca en el codigo cercano (un par con un 0,0 no viaja al lejano:
+    // en Simpsons esos viajes eran la mayor parte del 5 % del hilo que caia en codigo lejano).
+    if (m_stv_cero && m_stv_cero_cerca)
+    {
+      const ARM64Reg t = EncodeRegToDouble(scratch_reg);
+      m_float_emit.SHL(32, t, EncodeRegToDouble(src_reg), 1);
+      m_float_emit.CMEQ(32, t, t);
+      m_float_emit.BIC(32, t, 0xC0, 24);
+      m_float_emit.ORR(t, t, EncodeRegToDouble(src_reg));
+      m_float_emit.FABS(32, t, t);
+      m_float_emit.FCMGT(32, t, t);
+      m_float_emit.INS(8, t, 7, t, 0);
+      m_float_emit.FCMP(t);
+      stv_cerca = B(CCFlags::CC_VS);
+    }
+
     if (switch_to_farcode)
     {
       FixupBranch slow = B();
@@ -907,7 +936,7 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
   // 0x3FFF'FFFF (un normal) y se repite el chequeo de arriba con FABS + FCMGT #0 (sin registro de ceros): si las dos
   // lineas quedan bien (normal, infinito, o cero), FCVTL. Un NaN o un denormal con FZ siguen a la rutina exacta.
   std::optional<FixupBranch> stv_cero;
-  if (m_stv_cero && scratch_reg != ARM64Reg::INVALID_REG)
+  if (m_stv_cero && !m_stv_cero_cerca && scratch_reg != ARM64Reg::INVALID_REG)
   {
     const ARM64Reg t = EncodeRegToDouble(scratch_reg);
     m_float_emit.SHL(32, t, EncodeRegToDouble(src_reg), 1);
@@ -949,6 +978,8 @@ void JitArm64::ConvertSingleToDoublePair(size_t guest_reg, ARM64Reg dest_reg, AR
     SetJumpTarget(fast);
     if (stv_cero)
       SetJumpTarget(*stv_cero);
+    if (stv_cerca)
+      SetJumpTarget(*stv_cerca);
     m_float_emit.FCVTL(64, EncodeRegToDouble(dest_reg), EncodeRegToDouble(src_reg));
 
     SetJumpTarget(continue1);
