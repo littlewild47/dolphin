@@ -3,6 +3,10 @@
 
 #include "Core/PowerPC/PPCAnalyst.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #include <algorithm>
 #include <map>
 #include <string>
@@ -1089,6 +1093,16 @@ u32 PPCAnalyzer::Analyze(u32 address, CodeBlock* block, CodeBuffer* buffer,
     }
   }
 
+#ifdef __ANDROID__
+  // STV_GC_VOLATIL_x (depuracion): el bloque de memset de la SDK.
+  if (stv_blr_final >= 0 && code[0].address <= 0x80003524 && code[block->m_num_instructions - 1].address >= 0x80003524)
+  {
+    for (u32 k = 0; k < block->m_num_instructions; k++)
+      __android_log_print(ANDROID_LOG_ERROR, "STVGC", "vol: %08x %08x fin=%d exc=%d skip=%d in=%08x out=%08x desc=%08x",
+                          code[k].address, code[k].inst.hex, code[k].canEndBlock, code[k].canCauseException,
+                          code[k].skip, code[k].regsIn.m_val, code[k].regsOut.m_val, code[k].gprDiscardable.m_val);
+  }
+#endif
   // Forward scan, for flags that need the other direction for calculation.
   BitSet32 fprIsSingle, fprIsDuplicated, fprIsStoreSafe;
   BitSet8 gqrUsed, gqrModified;
