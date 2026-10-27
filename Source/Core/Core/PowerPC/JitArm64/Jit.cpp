@@ -492,6 +492,32 @@ bool JitArm64::STVBasePreparar(int guest, ARM64Reg host, s32 off, u32 bytes, boo
   return true;
 }
 
+// STV_GC_SALTOINT_x / STV_GC_TALON_x: la misma rama con la condicion contraria.
+FixupBranch JitArm64::STVInvertir(FixupBranch f)
+{
+  switch (f.type)
+  {
+  case FixupBranch::Type::CBZ:
+    f.type = FixupBranch::Type::CBNZ;
+    break;
+  case FixupBranch::Type::CBNZ:
+    f.type = FixupBranch::Type::CBZ;
+    break;
+  case FixupBranch::Type::TBZ:
+    f.type = FixupBranch::Type::TBNZ;
+    break;
+  case FixupBranch::Type::TBNZ:
+    f.type = FixupBranch::Type::TBZ;
+    break;
+  case FixupBranch::Type::BConditional:
+    f.cond = static_cast<CCFlags>(f.cond ^ 1);
+    break;
+  default:
+    ASSERT(false);
+  }
+  return f;
+}
+
 // STV_GC_SALTOINT_x: descuenta ciclos sin salir (W0/W1 de temporales: se llama con todo vaciado).
 void JitArm64::STVRestarDowncount(u32 ciclos)
 {
@@ -531,27 +557,7 @@ bool JitArm64::STVSaltoInterno(FixupBranch* unica, ARM64Reg tmp)
   const bool ajuste = js.downcountAmount != it->base_dc;
   if (unica && !ajuste && GetCodePtr() == antes)
   {
-    FixupBranch f = *unica;
-    switch (f.type)
-    {
-    case FixupBranch::Type::CBZ:
-      f.type = FixupBranch::Type::CBNZ;
-      break;
-    case FixupBranch::Type::CBNZ:
-      f.type = FixupBranch::Type::CBZ;
-      break;
-    case FixupBranch::Type::TBZ:
-      f.type = FixupBranch::Type::TBNZ;
-      break;
-    case FixupBranch::Type::TBNZ:
-      f.type = FixupBranch::Type::TBZ;
-      break;
-    case FixupBranch::Type::BConditional:
-      f.cond = static_cast<CCFlags>(f.cond ^ 1);
-      break;
-    default:
-      ASSERT(false);
-    }
+    FixupBranch f = STVInvertir(*unica);
     it->saltos.push_back(f);
     return true;
   }
@@ -1544,6 +1550,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
   js.numFloatingPointInst = 0;
   m_stv_saltos.clear();  // STV_GC_SALTOINT_x
   m_stv_base_guest = -1;  // STV_GC_BASE_x
+  m_stv_talones.clear();  // STV_GC_TALON_x
 
   b->normalEntry = GetWritableCodePtr();
   // STV_GC_AUDITA_x
@@ -1932,6 +1939,21 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     WriteExit(m_code_buffer[p.destino].address);
   }
   m_stv_saltos.clear();
+
+  // STV_GC_TALON_x: salidas condicionales emitidas fuera de linea, despues del cuerpo del bloque: el camino que sigue de
+  // largo solo paga la rama no tomada. Con el downcount y el estado del gather pipe del punto de salida.
+  for (const STVTalon& t : m_stv_talones)
+  {
+    SetJumpTarget(t.rama);
+    const u32 dc = js.downcountAmount;
+    const u32 fb = js.fifoBytesSinceCheck;
+    js.downcountAmount = t.dc;
+    js.fifoBytesSinceCheck = 0;
+    WriteExit(t.destino);
+    js.downcountAmount = dc;
+    js.fifoBytesSinceCheck = fb;
+  }
+  m_stv_talones.clear();
 
   // STV_GC_AUDITA_x: lo que se emite despues de la ultima instruccion (vaciado y salida de un bloque cortado).
   if (stv_aud && !stv_aud->empty())

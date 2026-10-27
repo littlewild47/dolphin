@@ -225,9 +225,22 @@ void JitArm64::bcx(UGeckoInstruction inst)
     }
     else
     {
+    const u8* stv_antes = GetCodePtr();
     gpr.Flush(FlushMode::MaintainState, WB);
     fpr.Flush(FlushMode::MaintainState, ARM64Reg::INVALID_REG);
 
+    // STV_GC_TALON_x: salida condicional de una sola rama, sin nada que vaciar ni Cleanup: la rama de "no saltar" se
+    // invierte y va al talon que DoJit emite al final del bloque (tope de 300 instrucciones: el TBZ llega a 32 KB).
+    if ((m_stv_volatil & 32768) && GetCodePtr() == stv_antes && !inst.LK && !js.op->branchIsIdleLoop &&
+        !IsBranchWatchEnabled() && stv_ctr != stv_cond && js.fifoBytesSinceCheck == 0 && !IsProfilingEnabled() &&
+        !(m_ppc_state.feature_flags & FEATURE_FLAG_PERFMON) && code_block.m_num_instructions <= 300)
+    {
+      FixupBranch* unica = stv_ctr ? &pCTRDontBranch : &pConditionDontBranch;
+      m_stv_talones.push_back({STVInvertir(*unica), js.op->branchTo, js.downcountAmount});
+      stv_directo = true;
+    }
+    else
+    {
     if (IsBranchWatchEnabled())
     {
       BitSet32 gpr_caller_save = gpr.GetCallerSavedUsed() & ~BitSet32{DecodeReg(WB)};
@@ -250,6 +263,7 @@ void JitArm64::bcx(UGeckoInstruction inst)
     else
     {
       WriteExit(js.op->branchTo, inst.LK, js.compilerPC + 4, WA);
+    }
     }
     }
 

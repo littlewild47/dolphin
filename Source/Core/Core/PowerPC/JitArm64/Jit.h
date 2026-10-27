@@ -467,6 +467,15 @@ protected:
   };
   std::vector<STVSaltoPendiente> m_stv_saltos;
   bool STVSaltoInterno(Arm64Gen::FixupBranch* unica, Arm64Gen::ARM64Reg tmp);
+  static Arm64Gen::FixupBranch STVInvertir(Arm64Gen::FixupBranch f);
+  // STV_GC_TALON_x (bit 32768)
+  struct STVTalon
+  {
+    Arm64Gen::FixupBranch rama;
+    u32 destino;
+    u32 dc;
+  };
+  std::vector<STVTalon> m_stv_talones;
   void STVEtiqueta(u32 indice);
   void STVRestarDowncount(u32 ciclos);
   // STV_GC_CORTO_x (bit 16 de la valvula): salida enlazada sin chequeo de downcount si va hacia adelante. Todo ciclo del
