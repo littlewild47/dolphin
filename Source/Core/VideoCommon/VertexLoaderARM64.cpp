@@ -33,7 +33,8 @@ constexpr ARM64Reg scale_reg = ARM64Reg::X9;
 constexpr ARM64Reg pf_src_reg = ARM64Reg::X13;
 constexpr ARM64Reg pf1_reg = ARM64Reg::W3;
 constexpr ARM64Reg pf2_reg = ARM64Reg::W4;
-// debug.stv.gc.vlpref = D (vertices de adelanto; 0 = como Dolphin). Se lee al generar cada cargador (al arrancar).
+// STV_GC_VLPREF_v1: D = 8 vertices de adelanto (Simpsons en el auto, ABBA: ~+2,5 %; D = 4 no pagaba).
+// debug.stv.gc.vlpref = D lo pisa (0 = como Dolphin). Se lee al generar cada cargador.
 static int StvVlPref()
 {
 #ifdef __ANDROID__
@@ -41,7 +42,7 @@ static int StvVlPref()
   if (__system_property_get("debug.stv.gc.vlpref", v) > 0)
     return std::clamp(atoi(v), 0, 16);
 #endif
-  return 0;
+  return 8;
 }
 
 static constexpr int GetLoadSize(int load_bytes)
