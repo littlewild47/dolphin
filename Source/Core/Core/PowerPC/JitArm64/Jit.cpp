@@ -39,6 +39,10 @@
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
+#include "Common/JitRegister.h"
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
 
 using namespace Arm64Gen;
 
@@ -1660,6 +1664,12 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
     stv_aud->push_back({"<entrada>", em_address, 0, static_cast<u32>(GetCodePtr() - stv_n0),
                         static_cast<u32>(m_far_code.GetCodePtr() - stv_f0)});
   }
+#ifdef __ANDROID__
+  {
+    char v[PROP_VALUE_MAX] = {};
+    m_stv_insmap = Common::JitRegister::IsEnabled() && __system_property_get("debug.stv.gc.insmap", v) > 0 && v[0] == '1';
+  }
+#endif
   for (u32 i = 0; i < code_block.m_num_instructions; i++)
   {
     const u8* stv_in = GetCodePtr();
@@ -1916,6 +1926,13 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         ++js.numFloatingPointInst;
     }
 
+    // STV_GC_INSMAP_x (instrumento): con debug.stv.gc.insmap=1 y el mapa perf prendido, una linea por instruccion
+    // PowerPC con su codigo nativo cercano (JIT_INS_<direccion>_<op>), para atribuir muestras a la instruccion exacta.
+    if (m_stv_insmap && GetCodePtr() != stv_in)
+    {
+      Common::JitRegister::Register(stv_in, static_cast<u32>(GetCodePtr() - stv_in), "JIT_INS_{:08x}_{}",
+                            m_code_buffer[i].address, m_code_buffer[i].opinfo->opname);
+    }
     if (stv_aud)
     {
       stv_aud->push_back({m_code_buffer[i].opinfo->opname, m_code_buffer[i].address, m_code_buffer[i].inst.hex,

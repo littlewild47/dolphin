@@ -262,6 +262,8 @@ public:
 
   void rlwinmx_internal(UGeckoInstruction inst, u32 sh);
 
+  bool m_stv_insmap = false;  // STV_GC_INSMAP_x
+
 protected:
   struct FastmemArea
   {
