@@ -478,22 +478,41 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
           __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: modo=%d", n);
         }
       }
-      static u64 es0 = 0, sl0 = 0;
+      // STV_GC_SALTOPROP_x: debug.stv.gc.saltoprop = "V,P" (ms emulados de rafaga y de pausa; "0" = el salto de siempre).
+      {
+        char sp[PROP_VALUE_MAX] = {};
+        static std::string stv_sp_prev;
+        if (__system_property_get("debug.stv.gc.saltoprop", sp) > 0 && stv_sp_prev != sp)
+        {
+          stv_sp_prev = sp;
+          int v = 0, pa = 0;
+          if (std::sscanf(sp, "%d,%d", &v, &pa) < 1)
+            v = 0;
+          CoreTiming::g_stv_prop_ventana_ms.store(std::clamp(v, 0, 1000), std::memory_order_relaxed);
+          CoreTiming::g_stv_prop_pausa_ms.store(std::clamp(pa, 0, 5000), std::memory_order_relaxed);
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: prop ventana=%dms pausa=%dms",
+                              CoreTiming::g_stv_prop_ventana_ms.load(), CoreTiming::g_stv_prop_pausa_ms.load());
+        }
+      }
+      static u64 es0 = 0, sl0 = 0, ra0 = 0;
       // STV_GC_ESPERA_x: se toma (y se pone en cero) cada segundo, haya o no linea de metricas.
       const double stv_espera_ms = CoreTiming::g_stv_espera_us.exchange(0) / 1000.0;
       const unsigned long long stv_largas = CoreTiming::g_stv_esperas_largas.exchange(0);
       const u64 es = CoreTiming::g_stv_esperas.load(std::memory_order_relaxed);
       const u64 sl = CoreTiming::g_stv_saltos.load(std::memory_order_relaxed);
+      const u64 ra = CoreTiming::g_stv_prop_rafagas.load(std::memory_order_relaxed);  // STV_GC_SALTOPROP_x
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
         __android_log_print(ANDROID_LOG_INFO, "STVGC",
-                            "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d espera=%.1fms/s largas=%llu/s",
+                            "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d espera=%.1fms/s largas=%llu/s "
+                            "rafagas=%llu/s",
                             static_cast<unsigned long long>(es - es0),
                             static_cast<unsigned long long>(sl - sl0),
                             Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0,
-                            stv_espera_ms, stv_largas);
+                            stv_espera_ms, stv_largas, static_cast<unsigned long long>(ra - ra0));
       es0 = es;
       sl0 = sl;
+      ra0 = ra;
     }
     // STV_GC_VILAZO_v1: debug.stv.gc.vilazo = 0|1 (el evento del VI solo en las medias lineas con trabajo). Con las
     // metricas, una linea por segundo con los eventos del VI.

@@ -43,6 +43,11 @@ namespace CoreTiming
 // STV_GC_SALTO_v1: lazos ociosos con espera al video y sin ella (las metricas los leen por segundo).
 extern std::atomic<u64> g_stv_esperas, g_stv_saltos;
 extern std::atomic<u64> g_stv_espera_us, g_stv_esperas_largas;  // STV_GC_ESPERA_x
+// STV_GC_SALTOPROP_x: salto proporcional. Con atraso, saltear las esperas solo durante una ventana de V ms de tiempo
+// emulado y despues esperar normal al menos P ms emulados antes de otra rafaga (V = 0: el salto de siempre, todas las
+// esperas mientras haya atraso). Valvula debug.stv.gc.saltoprop = "V,P".
+extern std::atomic<int> g_stv_prop_ventana_ms, g_stv_prop_pausa_ms;
+extern std::atomic<u64> g_stv_prop_rafagas;
 
 // These really shouldn't be global, but jit64 accesses them directly
 struct Globals
@@ -217,6 +222,8 @@ private:
   bool m_config_sync_on_skip_idle = false;
   // STV_GC_SALTO_v1: salto de cuadros adaptativo (ver Idle).
   int m_stv_salto = 1;
+  s64 m_stv_prop_hasta = 0;    // STV_GC_SALTOPROP_x: fin de la rafaga en curso (ticks)
+  s64 m_stv_prop_bloqueo = 0;  // STV_GC_SALTOPROP_x: antes de esto no empieza otra
   bool m_config_rush_frame_presentation = false;
 
   s64 m_throttle_reference_cycle = 0;
