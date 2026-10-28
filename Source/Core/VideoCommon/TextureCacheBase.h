@@ -167,6 +167,7 @@ struct TCacheEntry
   u32 pending_efb_copy_width = 0;
   u32 pending_efb_copy_height = 0;
   bool stv_recurrente = false;  // STV_GC_EFBASYNC_v1
+  int stv_xfb_muestras = 0;      // STV_GC_XFBLIVIANO_x
 
   std::string texture_info_name = "";
 

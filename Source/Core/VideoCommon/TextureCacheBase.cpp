@@ -181,6 +181,12 @@ void TextureCacheBase::OnConfigChanged(const VideoConfig& config)
   SetBackupConfig(config);
 }
 
+// STV_GC_XFBLIVIANO_x: debug.stv.gc.xfbliviano = 0|1 (PerformanceMetrics). Las copias al XFB sin relleno y con hash de
+// STV_XFB_MUESTRAS muestras (Dolphin: hash completo de ~600 KB, al copiar y otra vez al presentar). Una escritura de la
+// CPU sobre el XFB (un video del juego, por ejemplo) igual cambia el hash muestreado.
+bool g_stv_xfbliviano = false;
+static constexpr int STV_XFB_MUESTRAS = 2048;
+
 // STV_GC_EFBASYNC_v1: COPIAS DEL EFB A RAM SIN FRENAR AL JUEGO. Con "EFB a textura" apagado (Wind Waker lo apaga
 // por la Picto Box), cada copia a RAM se vacia en el DrawDone/token siguiente: el hilo de video envia el bufer de
 // comandos, ESPERA a que la GPU termine todo el cuadro hasta ahi y lee; el juego, que espera el DrawDone, queda parado
@@ -1936,6 +1942,7 @@ RcTcacheEntry TextureCacheBase::GetXFBTexture(u32 address, u32 width, u32 height
                               TextureAndTLUTFormat(TextureFormat::XFB, TLUTFormat::IA8), true);
   entry->SetDimensions(width, height, 1);
   entry->SetXfbCopy(stride);
+  entry->stv_xfb_muestras = g_stv_xfbliviano ? STV_XFB_MUESTRAS : 0;  // STV_GC_XFBLIVIANO_x
 
   const u64 hash = entry->CalculateHash();
   entry->SetHashes(hash, hash);
@@ -2398,6 +2405,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
       if (is_xfb_copy)
       {
         entry->should_force_safe_hashing = is_xfb_copy;
+        entry->stv_xfb_muestras = g_stv_xfbliviano ? STV_XFB_MUESTRAS : 0;  // STV_GC_XFBLIVIANO_x
         entry->SetXfbCopy(dstStride);
       }
       else
@@ -2519,7 +2527,10 @@ void TextureCacheBase::CopyRenderTargetToTexture(
   {
     if (is_xfb_copy)
     {
-      UninitializeXFBMemory(dst, dstStride, bytes_per_row, num_blocks_y);
+      // STV_GC_XFBLIVIANO_x: sin el relleno "fucsia" (~600 KB escritos por cuadro que ensuciaban la L3 compartida con el
+      // hilo del juego). La RAM queda como estaba: el hash (muestreado) igual detecta si la CPU la escribe despues.
+      if (!g_stv_xfbliviano)
+        UninitializeXFBMemory(dst, dstStride, bytes_per_row, num_blocks_y);
     }
     else
     {
@@ -2770,7 +2781,8 @@ void TextureCacheBase::UninitializeEFBMemory(u8* dst, u32 stride, u32 bytes_per_
   }
 }
 
-bool g_stv_xfbrapido = true;  // STV_GC_XFBRAPIDO_x (lo pisa PerformanceMetrics con debug.stv.gc.xfbrapido)
+bool g_stv_xfbrapido = true;
+  // STV_GC_XFBRAPIDO_x (lo pisa PerformanceMetrics con debug.stv.gc.xfbrapido)
 
 void TextureCacheBase::UninitializeXFBMemory(u8* dst, u32 stride, u32 bytes_per_row,
                                              u32 num_blocks_y)
@@ -3391,7 +3403,7 @@ int TCacheEntry::HashSampleSize() const
 {
   if (should_force_safe_hashing)
   {
-    return 0;
+    return stv_xfb_muestras;  // STV_GC_XFBLIVIANO_x: 0 = hash completo (Dolphin)
   }
 
   return g_ActiveConfig.iSafeTextureCache_ColorSamples;

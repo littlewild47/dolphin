@@ -75,6 +75,7 @@ extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
 extern std::atomic<bool> g_stv_efbasync;  // STV_GC_EFBASYNC_v1 (TextureCacheBase.cpp)
 extern bool g_stv_xfbrapido;            // STV_GC_XFBRAPIDO_x (TextureCacheBase.cpp)
+extern bool g_stv_xfbliviano;           // STV_GC_XFBLIVIANO_x (TextureCacheBase.cpp)
 extern std::atomic<u32> g_stv_efb_ram, g_stv_efb_async_n, g_stv_efb_forzadas, g_stv_efb_sync_n, g_stv_efb_espera_us;
 static TimePoint s_stv_ultimo_cuadro{};
 
@@ -537,6 +538,9 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       char xr[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.xfbrapido", xr) > 0 && (xr[0] == '0' || xr[0] == '1'))
         g_stv_xfbrapido = xr[0] == '1';
+      char xl[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.xfbliviano", xl) > 0 && (xl[0] == '0' || xl[0] == '1'))
+        g_stv_xfbliviano = xl[0] == '1';
     }
     // STV_GC_SKINHLE_v1: con las metricas, llamadas y vertices del reemplazo y, en el modo control, bytes comparados.
     // Si debug.stv.gc.skin cambia con el juego andando, se reenganchan los HLE y se vacia la cache del JIT (A/B en la
