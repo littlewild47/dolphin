@@ -199,6 +199,8 @@ public:
   void SetOption(AnalystOption option) { m_options |= option; }
   void ClearOption(AnalystOption option) { m_options &= ~(option); }
   bool HasOption(AnalystOption option) const { return !!(m_options & option); }
+  u32 STVOpciones() const { return m_options; }        // STV_GC_GECKOJIT_v1
+  void STVPonerOpciones(u32 o) { m_options = o; }  // STV_GC_GECKOJIT_v1
   void SetDebuggingEnabled(bool enabled) { m_is_debugging_enabled = enabled; }
   void SetBranchFollowingEnabled(bool enabled) { m_enable_branch_following = enabled; }
   void SetFloatExceptionsEnabled(bool enabled) { m_enable_float_exceptions = enabled; }

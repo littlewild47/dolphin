@@ -27,6 +27,10 @@
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/HLE/HLE.h"
+#include "Core/GeckoCode.h"
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 #include "Core/HW/CPU.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/Memmap.h"
@@ -1398,7 +1402,42 @@ void JitArm64::Jit(u32 em_address, bool clear_cache_and_retry_on_failure)
   // Analyze the block, collect all instructions it is made of (including inlining,
   // if that is enabled), reorder instructions for optimal performance, and join joinable
   // instructions.
-  const u32 nextPC = analyzer.Analyze(em_address, &code_block, &m_code_buffer, block_size);
+  u32 nextPC = analyzer.Analyze(em_address, &code_block, &m_code_buffer, block_size);
+
+  // STV_GC_GECKOJIT_v1: las opciones STV del analizador suponen codigo de compilador con su ABI (volatiles muertos en
+  // el blr final, saltos internos hacia adelante). El gestor de trucos de Dolphin y los codigos C2 (zona
+  // INSTALLER_BASE_ADDRESS..INSTALLER_END_ADDRESS) son ensamblador a mano que guarda y devuelve los volatiles: con esas
+  // opciones el JIT descartaba sus restauraciones ("Attempted to flush discarded register" con cualquier truco). Un
+  // bloque que toca esa zona (tambien por seguir ramas desde el juego) se analiza otra vez sin las opciones STV.
+  constexpr u32 stv_opciones = PPCAnalyst::PPCAnalyzer::OPTION_STV_LSU_SIN_EXCEPCION |
+                               PPCAnalyst::PPCAnalyzer::OPTION_STV_SALTO_INTERNO |
+                               PPCAnalyst::PPCAnalyzer::OPTION_STV_CR_VOLATIL |
+                               PPCAnalyst::PPCAnalyzer::OPTION_STV_HOJA |
+                               PPCAnalyst::PPCAnalyzer::OPTION_STV_VOLATILES_MUERTOS;
+  if (analyzer.STVOpciones() & stv_opciones)
+  {
+    bool stv_gecko = false;
+    for (u32 i = 0; i < code_block.m_num_instructions && !stv_gecko; i++)
+    {
+      const u32 a = m_code_buffer[i].address;
+      stv_gecko = a >= Gecko::INSTALLER_BASE_ADDRESS && a < Gecko::INSTALLER_END_ADDRESS;
+    }
+    if (stv_gecko)
+    {
+      const u32 antes = analyzer.STVOpciones();
+      analyzer.STVPonerOpciones(antes & ~stv_opciones);
+      nextPC = analyzer.Analyze(em_address, &code_block, &m_code_buffer, block_size);
+      analyzer.STVPonerOpciones(antes);
+#ifdef __ANDROID__
+      static bool stv_avisado = false;
+      if (!stv_avisado)
+      {
+        stv_avisado = true;
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: geckojit bloque %08x sin opciones STV", em_address);
+      }
+#endif
+    }
+  }
 
   if (code_block.m_memory_exception)
   {
