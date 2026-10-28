@@ -26,8 +26,11 @@
 namespace Vulkan::Grabador
 {
 bool g_limpieza = false;
-// STV_GC_GRABGIRO_x: vueltas cortas (yield) antes de dormir sin trabajo; debug.stv.gc.grabgiro (PerformanceMetrics).
-std::atomic<int> g_giro{1500};
+// STV_GC_GRABGIRO_v1: vueltas cortas (yield) antes de dormir sin trabajo. Con 1500 el grabador dormia ~7 mil veces por
+// segundo y el hilo de video pagaba un futex por cada despertar (5,5 % de su tiempo); con 200000 casi no duerme durante
+// el juego (Simpsons en el auto: ~+8 %; el grabador ocupa 61 % de un nucleo en vez de 27 %). debug.stv.gc.grabgiro lo
+// pisa (PerformanceMetrics).
+std::atomic<int> g_giro{200000};
 
 namespace
 {
