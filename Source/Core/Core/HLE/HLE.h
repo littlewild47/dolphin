@@ -55,6 +55,7 @@ struct TryReplaceFunctionResult
 };
 
 void PatchFixedFunctions(Core::System& system);
+bool STVHookValido(Core::System& system, u32 hook_index);  // STV_GC_SKINHLE_v1
 void PatchFunctions(Core::System& system);
 void Clear();
 void Reload(Core::System& system);
