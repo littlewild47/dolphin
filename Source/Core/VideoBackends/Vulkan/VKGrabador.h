@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include <cstddef>
 #include <new>
 #include <type_traits>
@@ -67,5 +69,6 @@ void Encolar(F&& f)
 // Limpieza diferida en curso (la escribe y la lee solo el hilo de video): lo que se destruye ahi ya no lo usa
 // ningun comando pendiente, porque la limpieza corre despues de esperar la valla del bufer.
 extern bool g_limpieza;
+extern std::atomic<int> g_giro;  // STV_GC_GRABGIRO_x
 }  // namespace Grabador
 }  // namespace Vulkan
