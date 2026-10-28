@@ -522,8 +522,9 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
     // STV_GC_GRABGIRO_x: debug.stv.gc.grabgiro = vueltas del grabador antes de dormir (1500 = antes)
     {
       char gg[PROP_VALUE_MAX] = {};
-      if (__system_property_get("debug.stv.gc.grabgiro", gg) > 0 && gg[0] >= '0' && gg[0] <= '9')
-        Vulkan::Grabador::g_giro.store(std::clamp(atoi(gg), 0, 1000000), std::memory_order_relaxed);
+      const bool hay = __system_property_get("debug.stv.gc.grabgiro", gg) > 0 && gg[0] >= '0' && gg[0] <= '9';
+      const int giro = hay ? atoi(gg) : Config::Get(Config::MAIN_STV_GRAB_GIRO);
+      Vulkan::Grabador::g_giro.store(std::clamp(giro, 0, 1000000), std::memory_order_relaxed);
     }
     // STV_GC_XFBRAPIDO_x: debug.stv.gc.xfbrapido = 0|1
     {
