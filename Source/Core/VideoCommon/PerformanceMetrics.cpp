@@ -72,6 +72,7 @@ static std::atomic<u32> s_stv_max_us{0}, s_stv_n50{0};
 extern std::atomic<u32> g_stv_pipes, g_stv_pipes_us;  // ShaderCache.cpp
 extern std::atomic<u32> g_stv_tex_n, g_stv_tex_kb, g_stv_pool_n, g_stv_pool_kb;  // TextureCacheBase.cpp
 extern std::atomic<bool> g_stv_efbasync;  // STV_GC_EFBASYNC_v1 (TextureCacheBase.cpp)
+extern bool g_stv_xfbrapido;            // STV_GC_XFBRAPIDO_x (TextureCacheBase.cpp)
 extern std::atomic<u32> g_stv_efb_ram, g_stv_efb_async_n, g_stv_efb_forzadas, g_stv_efb_sync_n, g_stv_efb_espera_us;
 static TimePoint s_stv_ultimo_cuadro{};
 
@@ -477,14 +478,19 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
       static u64 es0 = 0, sl0 = 0;
+      // STV_GC_ESPERA_x: se toma (y se pone en cero) cada segundo, haya o no linea de metricas.
+      const double stv_espera_ms = CoreTiming::g_stv_espera_us.exchange(0) / 1000.0;
+      const unsigned long long stv_largas = CoreTiming::g_stv_esperas_largas.exchange(0);
       const u64 es = CoreTiming::g_stv_esperas.load(std::memory_order_relaxed);
       const u64 sl = CoreTiming::g_stv_saltos.load(std::memory_order_relaxed);
       char mv[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.metricas", mv) > 0 && mv[0] == '1')
-        __android_log_print(ANDROID_LOG_INFO, "STVGC", "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d",
+        __android_log_print(ANDROID_LOG_INFO, "STVGC",
+                            "salto: esperas=%llu/s saltos=%llu/s modo=%d visk=%d espera=%.1fms/s largas=%llu/s",
                             static_cast<unsigned long long>(es - es0),
                             static_cast<unsigned long long>(sl - sl0),
-                            Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0);
+                            Config::Get(Config::MAIN_STV_SALTO), g_ActiveConfig.bVISkip ? 1 : 0,
+                            stv_espera_ms, stv_largas);
       es0 = es;
       sl0 = sl;
     }
@@ -511,6 +517,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_XFBRAPIDO_x: debug.stv.gc.xfbrapido = 0|1
+    {
+      char xr[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.xfbrapido", xr) > 0 && (xr[0] == '0' || xr[0] == '1'))
+        g_stv_xfbrapido = xr[0] == '1';
     }
     // STV_GC_SKINHLE_v1: con las metricas, llamadas y vertices del reemplazo y, en el modo control, bytes comparados.
     // Si debug.stv.gc.skin cambia con el juego andando, se reenganchan los HLE y se vacia la cache del JIT (A/B en la
