@@ -58,6 +58,9 @@
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
 
+#include <chrono>
+#include <map>
+
 static const u64 TEXHASH_INVALID = 0;
 // Sonic the Fighters (inside Sonic Gems Collection) loops a 64 frames animation
 static const int TEXTURE_KILL_THRESHOLD = 64;
@@ -108,6 +111,7 @@ void TextureCacheBase::Shutdown()
 {
   // Clear pending EFB copies first, so we don't try to flush them.
   m_pending_efb_copies.clear();
+  m_stv_en_vuelo.clear();  // STV_GC_EFBASYNC_v1
 
   HiresTexture::Shutdown();
 
@@ -172,6 +176,32 @@ void TextureCacheBase::OnConfigChanged(const VideoConfig& config)
   }
 
   SetBackupConfig(config);
+}
+
+// STV_GC_EFBASYNC_v1: COPIAS DEL EFB A RAM SIN FRENAR AL JUEGO. Con "EFB a textura" apagado (Wind Waker lo apaga
+// por la Picto Box), cada copia a RAM se vacia en el DrawDone/token siguiente: el hilo de video envia el bufer de
+// comandos, ESPERA a que la GPU termine todo el cuadro hasta ahi y lee; el juego, que espera el DrawDone, queda parado
+// (WW en la hierba de Outset: 4 copias por cuadro, ~8 ms de espera por cuadro, 22,5 FPS). Ahora una copia se vacia sin
+// esperar si la MISMA copia (direccion, tamano, formato, color/profundidad) se hizo en cada uno de los ultimos
+// STV_EFB_RACHA cuadros: un efecto de post-proceso (WW: profundidad de campo y sombras), no una copia suelta que el
+// juego lee con la CPU (la foto de la Picto Box, 152x104 una vez: sigue sincronica, y con ella todo lo pendiente). En
+// el DrawDone se envia el bufer y la copia queda en vuelo; la RAM se escribe cuando la valla de la GPU se senala
+// (sondeo cada 32 dibujos y en cada vaciado) y, a mas tardar, antes de diferir la tanda del cuadro siguiente. Las
+// escrituras respetan el orden. Se prende por juego con [Core] STVEfbAsync (debug.stv.gc.efbasync = 0|1 la pisa).
+std::atomic<bool> g_stv_efbasync{false};
+std::atomic<u32> g_stv_efb_ram{0}, g_stv_efb_async_n{0}, g_stv_efb_forzadas{0}, g_stv_efb_sync_n{0},
+    g_stv_efb_espera_us{0};
+static u32 s_stv_cuadro = 0;
+static constexpr u32 STV_EFB_RACHA = 8;
+struct StvRacha
+{
+  u32 ultimo = 0, racha = 0;
+};
+static std::map<u64, StvRacha> s_stv_rachas;
+static u32 StvMicros(std::chrono::steady_clock::time_point t0)
+{
+  return static_cast<u32>(
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count());
 }
 
 // STV_GC_METRICAS: tamano de la cache de texturas (entradas vivas y pool de libres), cada 60 cuadros.
@@ -806,7 +836,11 @@ void TextureCacheBase::OnFrameEnd()
   // Flush any outstanding EFB copies to RAM, in case the game is running at an uncapped frame
   // rate and not waiting for vblank. Otherwise, we'd end up with a huge list of pending
   // copies.
-  FlushEFBCopies();
+  FlushEFBCopies(4);
+  // STV_GC_EFBASYNC_v1: un cuadro mas para las rachas de copias recurrentes.
+  ++s_stv_cuadro;
+  if (s_stv_rachas.size() > 256)
+    s_stv_rachas.clear();
 
   Cleanup(g_presenter->FrameCount());
 }
@@ -2430,8 +2464,24 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     }
   }
 
+  bool stv_recurrente = false;
   if (copy_to_ram)
   {
+    g_stv_efb_ram.fetch_add(1, std::memory_order_relaxed);
+    {
+      const u64 k = (static_cast<u64>(dstAddr) << 32) | (static_cast<u64>(tex_w & 0xFFF) << 20) |
+                    ((tex_h & 0xFFF) << 8) | ((static_cast<u32>(dstFormat) & 0x7F) << 1) |
+                    (is_depth_copy ? 1 : 0);
+      StvRacha& r = s_stv_rachas[k];
+      if (r.racha != 0 && r.ultimo == s_stv_cuadro)
+        ;  // otra vez en el mismo cuadro: la racha no cambia
+      else if (r.racha != 0 && r.ultimo + 1 == s_stv_cuadro)
+        r.racha++;
+      else
+        r.racha = 1;
+      r.ultimo = s_stv_cuadro;
+      stv_recurrente = r.racha >= STV_EFB_RACHA;
+    }
     const std::array<u32, 3> coefficients = GetRAMCopyFilterCoefficients(filter_coefficients);
     PixelFormat srcFormat = bpmem.zcontrol.pixel_format;
     EFBCopyParams format(srcFormat, dstFormat, is_depth_copy, isIntensity,
@@ -2457,6 +2507,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
         entry->pending_efb_copy = std::move(staging_texture);
         entry->pending_efb_copy_width = bytes_per_row / sizeof(u32);
         entry->pending_efb_copy_height = num_blocks_y;
+        entry->stv_recurrente = stv_recurrente;
         m_pending_efb_copies.push_back(entry);
       }
     }
@@ -2558,14 +2609,69 @@ void TextureCacheBase::CopyRenderTargetToTexture(
   }
 }
 
-void TextureCacheBase::FlushEFBCopies()
+void TextureCacheBase::StvSondearEnVuelo()
+{
+  if (!m_stv_en_vuelo.empty())
+    StvCompletarEnVuelo(false);
+}
+
+// Vacia las copias en vuelo que ya terminaron (sin esperar); con forzar_todo, todas (esperando a la GPU las que no
+// terminaron). En orden: una que no termino frena a las que vienen detras.
+void TextureCacheBase::StvCompletarEnVuelo(bool forzar_todo)
+{
+  size_t i = 0;
+  for (; i < m_stv_en_vuelo.size(); i++)
+  {
+    TCacheEntry* entry = m_stv_en_vuelo[i].get();
+    if (!entry->pending_efb_copy)
+      continue;  // descartada por una copia nueva que la piso entera (InvalidateTexture)
+    if (!entry->pending_efb_copy->StvListoSinEsperar())
+    {
+      if (!forzar_todo)
+        break;
+      g_stv_efb_forzadas.fetch_add(1, std::memory_order_relaxed);
+      const auto t0 = std::chrono::steady_clock::now();
+      FlushEFBCopy(entry);
+      g_stv_efb_espera_us.fetch_add(StvMicros(t0), std::memory_order_relaxed);
+      continue;
+    }
+    FlushEFBCopy(entry);
+  }
+  m_stv_en_vuelo.erase(m_stv_en_vuelo.begin(), m_stv_en_vuelo.begin() + i);
+}
+
+void TextureCacheBase::FlushEFBCopies(int stv_motivo)
 {
   if (m_pending_efb_copies.empty())
+  {
+    if (!m_stv_en_vuelo.empty())
+      StvCompletarEnVuelo(stv_motivo == 3);
     return;
+  }
 
+  // STV_GC_EFBASYNC_v1: si TODAS las pendientes son recurrentes, la tanda anterior se completa (la GPU tuvo un cuadro
+  // para terminarla), el bufer se envia y estas quedan en vuelo. Si una sola no lo es, todo se vacia como siempre.
+  if (g_stv_efbasync.load(std::memory_order_relaxed) && stv_motivo != 3 &&
+      std::ranges::all_of(m_pending_efb_copies, [](const RcTcacheEntry& e) { return e->stv_recurrente; }))
+  {
+    if (!m_stv_en_vuelo.empty())
+      StvCompletarEnVuelo(true);
+    g_gfx->Flush();
+    for (auto& entry : m_pending_efb_copies)
+      m_stv_en_vuelo.push_back(entry);
+    g_stv_efb_async_n.fetch_add(static_cast<u32>(m_pending_efb_copies.size()), std::memory_order_relaxed);
+    m_pending_efb_copies.clear();
+    return;
+  }
+  if (!m_stv_en_vuelo.empty())
+    StvCompletarEnVuelo(true);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  g_stv_efb_sync_n.fetch_add(static_cast<u32>(m_pending_efb_copies.size()), std::memory_order_relaxed);
   for (auto& entry : m_pending_efb_copies)
     FlushEFBCopy(entry.get());
   m_pending_efb_copies.clear();
+  g_stv_efb_espera_us.fetch_add(StvMicros(t0), std::memory_order_relaxed);
 }
 
 void TextureCacheBase::FlushStaleBinds()
@@ -2831,6 +2937,7 @@ TextureCacheBase::InvalidateTexture(TexAddrCache::iterator iter, bool discard_pe
       auto pending_it = std::ranges::find(m_pending_efb_copies, entry);
       if (pending_it != m_pending_efb_copies.end())
         m_pending_efb_copies.erase(pending_it);
+      // STV_GC_EFBASYNC_v1: si estaba en vuelo queda sin pending_efb_copy y StvCompletarEnVuelo la salta.
     }
     else
     {

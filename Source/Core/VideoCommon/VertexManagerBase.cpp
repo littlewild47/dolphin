@@ -933,9 +933,15 @@ void VertexManagerBase::OnConfigChange()
   m_index_generator.Init();
 }
 
+extern std::atomic<bool> g_stv_efbasync;  // STV_GC_EFBASYNC_v1 (TextureCacheBase.cpp)
+
 void VertexManagerBase::OnDraw()
 {
   m_draw_counter++;
+
+  // STV_GC_EFBASYNC_v1: escribir en la RAM las copias en vuelo que la GPU ya termino.
+  if ((m_draw_counter & 31) == 0 && g_stv_efbasync.load(std::memory_order_relaxed))
+    g_texture_cache->StvSondearEnVuelo();
 
   // If the last efb copy was too close to the one before it, don't forget about it until the next
   // efb copy happens (which might not be for a long time)

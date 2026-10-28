@@ -275,6 +275,28 @@ void CommandBufferManager::WaitForFenceCounter(u64 fence_counter)
   WaitForCommandBufferCompletion(index);
 }
 
+bool CommandBufferManager::StvFenceListo(u64 fence_counter)
+{
+  if (m_completed_fence_counter >= fence_counter)
+    return true;
+  u32 index = (m_current_cmd_buffer + 1) % NUM_COMMAND_BUFFERS;
+  while (index != m_current_cmd_buffer)
+  {
+    if (m_command_buffers[index].fence_counter >= fence_counter)
+      break;
+    index = (index + 1) % NUM_COMMAND_BUFFERS;
+  }
+  if (index == m_current_cmd_buffer)
+    return false;
+  CmdBufferResources& resources = m_command_buffers[index];
+  if (resources.waiting_for_submit.load(std::memory_order_acquire))
+    return false;
+  if (vkGetFenceStatus(g_vulkan_context->GetDevice(), resources.fence) != VK_SUCCESS)
+    return false;
+  WaitForCommandBufferCompletion(index);  // ya senalada: no espera, solo limpia y avanza el contador
+  return true;
+}
+
 void CommandBufferManager::WaitForCommandBufferCompletion(u32 index)
 {
   CmdBufferResources& resources = m_command_buffers[index];
