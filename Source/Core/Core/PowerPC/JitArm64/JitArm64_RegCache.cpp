@@ -207,11 +207,15 @@ void Arm64GPRCache::STVBaseConfigurar(bool reservar, bool reservar26)
   GetAllocationOrder();
 }
 
-void Arm64GPRCache::STVGfConfigurar(int modo)
+void Arm64GPRCache::STVGfConfigurar(int modo, u32 mascara2)
 {
-  if (modo == m_stv_gf)
+  // STV_GC_JITGF2_x: la mascara extra solo vale con los fijos prendidos (la acota JitBase::RefreshConfig).
+  if (modo == 0)
+    mascara2 = 0;
+  if (modo == m_stv_gf && mascara2 == g_stv_gf2_mascara)
     return;
   m_stv_gf = modo;
+  g_stv_gf2_mascara = mascara2;
   for (auto& reg : m_guest_registers)
     reg.Flush();
   m_host_registers.clear();
@@ -376,10 +380,10 @@ void Arm64GPRCache::FlushRegisters(BitSet32 regs, FlushMode mode, ARM64Reg tmp_r
   // pares de no fijos (p. ej. r5/r6) se siguen guardando con un STP.
   if (m_stv_gf != 0)
   {
-    const BitSet32 fijos = regs & BitSet32(STV_GF_MASCARA);
+    const BitSet32 fijos = regs & BitSet32(STV_GF_MASCARA | g_stv_gf2_mascara);  // STV_GC_JITGF2_x
     for (int i : fijos)
       STVFlushFijo(i, mode);
-    regs &= ~BitSet32(STV_GF_MASCARA);
+    regs &= ~BitSet32(STV_GF_MASCARA | g_stv_gf2_mascara);
   }
 
   for (auto iter = regs.begin(); iter != regs.end(); ++iter)
@@ -641,6 +645,10 @@ void Arm64GPRCache::GetAllocationOrder()
   {
     // STV_GC_JITGF_v1: con la valvula, W19-W24 son de los GPR fijos (pool 27 -> 21).
     if (m_stv_gf != 0 && reg >= ARM64Reg::W19 && reg <= ARM64Reg::W24)
+      continue;
+    // STV_GC_JITGF2_x: W15.. para los fijos extra (uno por bit de la mascara).
+    if (reg >= ARM64Reg::W15 &&
+        static_cast<int>(reg) < static_cast<int>(ARM64Reg::W15) + __builtin_popcount(g_stv_gf2_mascara))
       continue;
     // STV_GC_BASE_x: con la valvula, W25 es el registro de base (X25 = MEM_REG + rA), fuera del pool.
     if (m_stv_x25 && reg == ARM64Reg::W25)

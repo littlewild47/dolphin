@@ -166,9 +166,12 @@ void JitArm64::GenerateAsm()
   if (!assembly_dispatcher || !GetBlockCache()->GetEntryPoints())
   {
     // Call C version of Dispatch().
+    // STV_GC_JITGF2_x: Dispatch es C++ y pisa W15-W17 (caller-saved).
+    STVGf2Guardar(true);
     MOVP2R(ARM64Reg::X8, reinterpret_cast<void*>(&JitBase::Dispatch));
     MOVP2R(ARM64Reg::X0, this);
     BLR(ARM64Reg::X8);
+    STVGf2Cargar(true);
 
     FixupBranch no_block_available = CBZ(ARM64Reg::X0);
 

@@ -222,6 +222,22 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
         }
       }
     }
+    // STV_GC_JITGF2_x: debug.stv.gc.gf2 = mascara decimal de GPR fijos extra (p. ej. r5,r12,r29 = 536875040); vacia
+    // la cache. El efectivo lo escribe JitBase::RefreshConfig ("jit: gf2 efectivo=...").
+    {
+      char g2[PROP_VALUE_MAX] = {};
+      static long long stv_g2_prev = -1;
+      if (__system_property_get("debug.stv.gc.gf2", g2) > 0 && g2[0] >= '0' && g2[0] <= '9')
+      {
+        const long long n = atoll(g2);
+        if (n != stv_g2_prev && n >= 0 && n <= 0xffffffffLL)
+        {
+          stv_g2_prev = n;
+          Config::SetCurrent(Config::MAIN_STV_GPR_FIJOS2, static_cast<int>(static_cast<u32>(n)));
+          __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: gf2=%lld", n);
+        }
+      }
+    }
     // STV_GC_BLRFIX_v1: debug.stv.gc.blrfix = 0|1 (tabla de ajustes del JIT: vacia la cache).
     {
       char bf[PROP_VALUE_MAX] = {};

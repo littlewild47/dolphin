@@ -180,6 +180,10 @@ protected:
   // configuracion para saber si hay que refrescar) y modo efectivo 0|1|2 que usa JitArm64. El efectivo se fuerza a
   // 0 con jo.memcheck (ver RefreshConfig). No esta en JIT_SETTINGS porque esa tabla es solo de bool.
   int m_stv_gf_pedido = 0;
+  // STV_GC_JITGF2_x: mascara pedida de [Core] STVGprFijos2 (cruda) y efectiva (sin los seis de JITGF_v1, a lo sumo
+  // tres bits, 0 si los fijos estan apagados).
+  int m_stv_gf2_pedido = 0;
+  u32 m_stv_gf2 = 0;
   // STV_GC_FIFO3_v1: umbral pedido y efectivo del gather pipe.
   int m_stv_gp_pedido = 32;
   u32 m_stv_gp_umbral = 32;
@@ -225,6 +229,7 @@ public:
   bool IsDebuggingEnabled() const { return m_enable_debugging; }
   // STV_GC_JITGF_v1: modo efectivo de los GPR fijos del JIT ARM64 (0 apagado, 1 prendido, 2 con verificacion).
   int STVGf() const { return m_stv_gf; }
+  u32 STVGf2() const { return m_stv_gf2; }  // STV_GC_JITGF2_x
   bool IsBranchWatchEnabled() const
   {
     auto& branch_watch = m_system.GetPowerPC().GetBranchWatch();

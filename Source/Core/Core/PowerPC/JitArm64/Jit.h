@@ -113,12 +113,18 @@ public:
   void STVGfCargar(bool nop_si_apagada = false);
   // STV_GC_JITGF_v1: modo 2, al entrar a cada bloque: cada fijo contra su copia en ppcState; si difieren, BRK #0x5A.
   void STVGfVerificar();
+  // STV_GC_JITGF2_x: los fijos extra en W15-W17 son caller-saved: los envoltorios de abajo los dejan en ppcState
+  // antes de llamar a C++ y los recargan despues (igual que W27; el C++ puede ser el interprete, que los escribe).
+  void STVGf2Guardar(bool nop_si_apagada = false);
+  void STVGf2Cargar(bool nop_si_apagada = false);
 
   template <typename FuncRet, typename... FuncArgs, typename... Args>
   void ABI_CallFunction(FuncRet (*func)(FuncArgs...), Args... args)
   {
     STVDcGuardar();
+    STVGf2Guardar();
     Arm64Gen::ARM64XEmitter::ABI_CallFunction(func, args...);
+    STVGf2Cargar();
     STVDcCargar();
   }
 
@@ -126,7 +132,9 @@ public:
   void ABI_CallLambdaFunction(const std::function<FuncRet(FuncArgs...)>* f, Args... args)
   {
     STVDcGuardar();
+    STVGf2Guardar();
     Arm64Gen::ARM64XEmitter::ABI_CallLambdaFunction(f, args...);
+    STVGf2Cargar();
     STVDcCargar();
   }
 

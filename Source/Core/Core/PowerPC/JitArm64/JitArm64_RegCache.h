@@ -37,8 +37,20 @@ constexpr Arm64Gen::ARM64Reg DOWNCOUNT_REG = Arm64Gen::ARM64Reg::W27;
 // prendida, W19-W24 salen del orden de asignacion (pool 27 -> 21). Callee-saved: el C++ los preserva.
 // Pares contiguos en ppcState (para STP/LDP): {r0,r1} = {W20,W23}, {r3,r4} = {W19,W22}, {r30,r31} = {W24,W21}.
 constexpr u32 STV_GF_MASCARA = (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) | (1u << 30) | (1u << 31);
-constexpr Arm64Gen::ARM64Reg STVGfHost(size_t preg)
+// STV_GC_JITGF2_x: hasta tres GPR fijos MAS, elegidos por juego ([Core] STVGprFijos2 = mascara de GPR del invitado,
+// fuera de los seis de arriba), en W15, W16, W17 por orden de indice. Son caller-saved: toda llamada del codigo JIT a
+// C++ los deja en ppcState antes y los recarga despues (envoltorios ABI_CallFunction de JitArm64 y las rutinas del
+// despachador por STVGfGuardar/STVGfCargar); los caminos que salvan "caller saved" (rutinas de cuantizados) los
+// salvan por ser W15-W17. Ninguna rutina del JIT usa W15-W17 como temporal fijo (verificado por grep). La mascara
+// la fija Arm64GPRCache::STVGfConfigurar con la cache vacia; 0 = nada (el comportamiento de JITGF_v1).
+inline u32 g_stv_gf2_mascara = 0;
+inline Arm64Gen::ARM64Reg STVGfHost(size_t preg)
 {
+  if (preg < 32 && ((g_stv_gf2_mascara >> preg) & 1) != 0)
+  {
+    const u32 rango = static_cast<u32>(__builtin_popcount(g_stv_gf2_mascara & ((1u << preg) - 1)));
+    return static_cast<Arm64Gen::ARM64Reg>(static_cast<int>(Arm64Gen::ARM64Reg::W15) + static_cast<int>(rango));
+  }
   switch (preg)
   {
   case 3:
@@ -428,11 +440,12 @@ public:
   // STV_GC_JITGF_v1: modo de los GPR fijos (0|1|2). Reconstruye el orden de asignacion si cambia; se llama con la
   // cache vacia (Init y ClearCache, despues de RefreshConfig).
   void STVBaseConfigurar(bool reservar, bool reservar26);  // STV_GC_BASE_x / BASE2_x
-  void STVGfConfigurar(int modo);
+  void STVGfConfigurar(int modo, u32 mascara2);
   int STVGfModo() const { return m_stv_gf; }
   bool STVEsFijo(size_t index) const override
   {
-    return m_stv_gf != 0 && index < GUEST_GPR_COUNT && ((STV_GF_MASCARA >> index) & 1) != 0;
+    return m_stv_gf != 0 && index < GUEST_GPR_COUNT &&
+           (((STV_GF_MASCARA | g_stv_gf2_mascara) >> index) & 1) != 0;
   }
 
   void FlushRegisters(

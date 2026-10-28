@@ -52,6 +52,8 @@ const Info<bool> MAIN_ACCURATE_CPU_CACHE{{System::Main, "Core", "AccurateCPUCach
 const Info<bool> MAIN_STV_DOWNCOUNT_REG{{System::Main, "Core", "STVDowncountReg"}, true};
 // STV_GC_JITGF_v1: 0 = apagada, 1 = seis GPR fijos, 2 = fijos + verificacion. Por defecto 1 (Twilight Princess +3 %).
 const Info<int> MAIN_STV_GPR_FIJOS{{System::Main, "Core", "STVGprFijos"}, 1};
+// STV_GC_JITGF2_x: mascara de hasta tres GPR fijos extra (fuera de r0,r1,r3,r4,r30,r31), por juego. 0 = ninguno.
+const Info<int> MAIN_STV_GPR_FIJOS2{{System::Main, "Core", "STVGprFijos2"}, 0};
 // STV_GC_BLRFIX_v1: ver Jit.cpp (WriteExit con destino en registro).
 const Info<bool> MAIN_STV_BLR_FIX{{System::Main, "Core", "STVBlrFix"}, true};
 // STV_GC_FIFOREG_v1: ver JitArm64_BackPatch.cpp (escrituras al FIFO con la direccion en un registro).

@@ -66,6 +66,7 @@ extern const Info<bool> MAIN_STV_DOWNCOUNT_REG;
 // STV_GC_JITGF_v1: r3,r0,r31,r4,r1,r30 del PowerPC fijos en W19-W24 del JIT ARM64 entre bloques.
 // 0 = apagada, 1 = prendida, 2 = prendida + escritura en ppcState.gpr y verificacion al entrar a cada bloque.
 extern const Info<int> MAIN_STV_GPR_FIJOS;
+extern const Info<int> MAIN_STV_GPR_FIJOS2;  // STV_GC_JITGF2_x
 // STV_GC_BLRFIX_v1: una llamada indirecta (bcctrl) empuja la direccion de retorno correcta aunque su temporal sea W26.
 extern const Info<bool> MAIN_STV_BLR_FIX;
 // STV_GC_FIFOREG_v1: una escritura que ya se vio ir al FIFO de la GPU (0xCC008000) con la direccion en un registro

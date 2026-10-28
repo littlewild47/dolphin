@@ -3,6 +3,10 @@
 
 #include "Core/PowerPC/JitArm64/Jit.h"
 
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <mutex>
@@ -83,7 +87,7 @@ void JitArm64::Init()
   gpr.Init(this);
   fpr.Init(this);
   // STV_GC_JITGF_v1: el orden de asignacion depende de la valvula (RefreshConfig ya corrio).
-  gpr.STVGfConfigurar(STVGf());
+  gpr.STVGfConfigurar(STVGf(), STVGf2());
   gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
   blocks.Init();
 
@@ -184,7 +188,7 @@ void JitArm64::ClearCache()
   m_far_code_1.ClearCodeSpace();
   RefreshConfig();
   // STV_GC_JITGF_v1: aplicar el modo nuevo a la cache de registros antes de regenerar las rutinas y compilar.
-  gpr.STVGfConfigurar(STVGf());
+  gpr.STVGfConfigurar(STVGf(), STVGf2());
   gpr.STVBaseConfigurar((m_stv_volatil & 16384) != 0, (m_stv_volatil & 81920) == 81920);  // STV_GC_BASE_x
 
   GenerateAsmAndResetFreeMemoryRanges();
@@ -640,6 +644,7 @@ void JitArm64::STVGfGuardar(bool nop_si_apagada)
     NOP();
     NOP();
   }
+  STVGf2Guardar(nop_si_apagada);
 }
 
 // STV_GC_JITGF_v1: ppcState.gpr -> los seis GPR fijos (3 LDP).
@@ -657,6 +662,7 @@ void JitArm64::STVGfCargar(bool nop_si_apagada)
     NOP();
     NOP();
   }
+  STVGf2Cargar(nop_si_apagada);
 }
 
 // STV_GC_JITGF_v1: modo 2 (solo depuracion). Al entrar al bloque, con la escritura en ppcState de siempre activa,
@@ -675,9 +681,65 @@ void JitArm64::STVGfVerificar()
   LDP(IndexType::Signed, ARM64Reg::W0, ARM64Reg::W1, PPC_REG, PPCSTATE_OFF_GPR(30));
   CCMP(STVGfHost(30), ARM64Reg::W0, 0, CC_EQ);
   CCMP(STVGfHost(31), ARM64Reg::W1, 0, CC_EQ);
+  // STV_GC_JITGF2_x: los extra, de a uno.
+  for (int i = 0; i < 32; ++i)
+  {
+    if ((STVGf2() >> i) & 1)
+    {
+      LDR(IndexType::Unsigned, ARM64Reg::W0, PPC_REG, PPCSTATE_OFF_GPR(i));
+      CCMP(STVGfHost(i), ARM64Reg::W0, 0, CC_EQ);
+    }
+  }
   FixupBranch iguales = B(CC_EQ);
   BRK(0x5A);
   SetJumpTarget(iguales);
+}
+
+// STV_GC_JITGF2_x: los fijos extra (caller-saved) a ppcState / desde ppcState. Siempre tres ranuras: con
+// nop_si_apagada, NOP en las que sobran (rutinas del despachador: misma disposicion en todos los modos).
+void JitArm64::STVGf2Guardar(bool nop_si_apagada)
+{
+  int n = 0;
+  for (int i = 0; i < 32; ++i)
+  {
+    if ((STVGf2() >> i) & 1)
+    {
+      STR(IndexType::Unsigned, STVGfHost(i), PPC_REG, PPCSTATE_OFF_GPR(i));
+      ++n;
+    }
+  }
+  for (; nop_si_apagada && n < 3; ++n)
+    NOP();
+}
+
+void JitArm64::STVGf2Cargar(bool nop_si_apagada)
+{
+  // Control negativo (instrumento): debug.stv.gc.gf2mal = 1 al generar el despachador omite la recarga del primer
+  // extra en sus rutinas (nop_si_apagada): el C++ lo pisa y el modo 2 tiene que frenar con BRK #0x5A.
+  bool mal = false;
+#ifdef __ANDROID__
+  {
+    char v[PROP_VALUE_MAX] = {};
+    mal = nop_si_apagada && __system_property_get("debug.stv.gc.gf2mal", v) > 0 && v[0] == '1';
+  }
+#endif
+  int n = 0;
+  for (int i = 0; i < 32; ++i)
+  {
+    if ((STVGf2() >> i) & 1)
+    {
+      if (mal && n == 0)
+      {
+        NOP();
+        ++n;
+        continue;
+      }
+      LDR(IndexType::Unsigned, STVGfHost(i), PPC_REG, PPCSTATE_OFF_GPR(i));
+      ++n;
+    }
+  }
+  for (; nop_si_apagada && n < 3; ++n)
+    NOP();
 }
 
 void JitArm64::ResetStack()

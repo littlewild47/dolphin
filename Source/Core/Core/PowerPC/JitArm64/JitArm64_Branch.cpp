@@ -159,7 +159,9 @@ void JitArm64::bx(UGeckoInstruction inst)
     MOVP2R(XA, &CoreTiming::GlobalIdle);
     // STV_GC_JITDC_v1: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
     STVDcGuardar();
+    STVGf2Guardar();  // STV_GC_JITGF2_x: Idle es C++ (y su PLT usa X16/X17): pisa W15-W17
     BLR(XA);
+    STVGf2Cargar();
     STVDcCargar();
     WA.Unlock();
 
@@ -255,7 +257,9 @@ void JitArm64::bcx(UGeckoInstruction inst)
       MOVP2R(XA, &CoreTiming::GlobalIdle);
       // STV_GC_JITDC_v1: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
       STVDcGuardar();
+      STVGf2Guardar();  // STV_GC_JITGF2_x: Idle es C++ (y su PLT usa X16/X17): pisa W15-W17
       BLR(XA);
+      STVGf2Cargar();
       STVDcCargar();
 
       WriteExceptionExit(js.op->branchTo);
@@ -513,7 +517,9 @@ void JitArm64::bclrx(UGeckoInstruction inst)
       MOVP2R(XA, &CoreTiming::GlobalIdle);
       // STV_GC_JITDC_v1: Idle lee el downcount y lo pone en 0: guardar W27 antes y recargarlo despues.
       STVDcGuardar();
+      STVGf2Guardar();  // STV_GC_JITGF2_x: Idle es C++ (y su PLT usa X16/X17): pisa W15-W17
       BLR(XA);
+      STVGf2Cargar();
       STVDcCargar();
 
       WriteExceptionExit(js.op->branchTo);

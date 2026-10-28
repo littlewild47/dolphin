@@ -142,6 +142,8 @@ bool JitBase::DoesConfigNeedRefresh() const
   // STV_GC_JITGF_v1: la valvula de GPR fijos es un int y va aparte de la tabla de bool.
   if (m_stv_gf_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS))
     return true;
+  if (m_stv_gf2_pedido != Config::Get(Config::MAIN_STV_GPR_FIJOS2))  // STV_GC_JITGF2_x
+    return true;
   // STV_GC_FIFO3_v1: idem para el umbral del gather pipe.
   if (m_stv_gp_pedido != Config::Get(Config::MAIN_STV_GP_UMBRAL))
     return true;
@@ -185,6 +187,7 @@ void JitBase::RefreshConfig()
   // carga escribe directo sobre el registro arquitectonico. El modo depuracion NO la apaga: los puntos de parada
   // sincronizan a mano (DoJit) y el perfilado de bloques (jitdump p) prende la depuracion.
   m_stv_gf_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS);
+  m_stv_gf2_pedido = Config::Get(Config::MAIN_STV_GPR_FIJOS2);  // STV_GC_JITGF2_x
   // STV_GC_FIFO3_v1: umbral acotado a 32..256 en multiplos de 32 (el bufer del gather pipe mide 512).
   m_stv_gp_pedido = Config::Get(Config::MAIN_STV_GP_UMBRAL);
   m_stv_gp_umbral = (m_stv_gp_pedido >= 32 && m_stv_gp_pedido <= 256) ? (m_stv_gp_pedido & ~31) : 32;
@@ -231,6 +234,24 @@ void JitBase::RefreshConfig()
     }
 #endif
     m_stv_gf = efectivo;
+    // STV_GC_JITGF2_x: fuera los seis de JITGF_v1 y a lo sumo los tres bits mas bajos.
+    u32 extra = 0;
+    if (efectivo != 0)
+    {
+      u32 resto = static_cast<u32>(m_stv_gf2_pedido) & ~((1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) |
+                                                         (1u << 30) | (1u << 31));
+      for (int n = 0; n < 3 && resto != 0; ++n)
+      {
+        extra |= resto & (0u - resto);
+        resto &= resto - 1;
+      }
+    }
+#ifdef __ANDROID__
+    if (extra != m_stv_gf2)
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: gf2 efectivo=0x%08x (pedido=%d)", extra,
+                          m_stv_gf2_pedido);
+#endif
+    m_stv_gf2 = extra;
   }
 
   if (wanted_page_table_mappings != WantsPageTableMappings())
