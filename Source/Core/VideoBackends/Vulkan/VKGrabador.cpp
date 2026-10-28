@@ -26,6 +26,8 @@
 namespace Vulkan::Grabador
 {
 bool g_limpieza = false;
+// STV_GC_GRABGIRO_x: vueltas cortas (yield) antes de dormir sin trabajo; debug.stv.gc.grabgiro (PerformanceMetrics).
+std::atomic<int> g_giro{1500};
 
 namespace
 {
@@ -104,7 +106,8 @@ void Hilo()
     {
       // Sin trabajo: unas vueltas cortas (el hilo de video publica en rafagas) y despues dormir.
       bool hay = false;
-      for (int i = 0; i < 1500 && !hay; i++)
+      const int giro = g_giro.load(std::memory_order_relaxed);
+      for (int i = 0; i < giro && !hay; i++)
       {
         Ceder();
         hay = s_w.load(std::memory_order_acquire) != r;

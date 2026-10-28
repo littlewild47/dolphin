@@ -25,6 +25,7 @@
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
 #include "Core/HLE/HLE.h"
+#include "VideoBackends/Vulkan/VKGrabador.h"
 #include "Core/HLE/HLE_STV.h"
 
 #ifdef __ANDROID__
@@ -517,6 +518,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_GRABGIRO_x: debug.stv.gc.grabgiro = vueltas del grabador antes de dormir (1500 = antes)
+    {
+      char gg[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.grabgiro", gg) > 0 && gg[0] >= '0' && gg[0] <= '9')
+        Vulkan::Grabador::g_giro.store(std::clamp(atoi(gg), 0, 1000000), std::memory_order_relaxed);
     }
     // STV_GC_XFBRAPIDO_x: debug.stv.gc.xfbrapido = 0|1
     {
