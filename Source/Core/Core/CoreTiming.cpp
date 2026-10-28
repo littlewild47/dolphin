@@ -3,6 +3,8 @@
 
 #include "Core/CoreTiming.h"
 
+#include <chrono>
+
 #include <algorithm>
 #include <mutex>
 #include <string>
@@ -36,6 +38,7 @@
 namespace CoreTiming
 {
 std::atomic<u64> g_stv_esperas{0}, g_stv_saltos{0};
+std::atomic<u64> g_stv_espera_us{0}, g_stv_esperas_largas{0};  // STV_GC_ESPERA_x
 
 static constexpr int MAX_SLICE_LENGTH = 20000;
 
@@ -602,7 +605,14 @@ void CoreTimingManager::Idle()
       // When the FIFO is processing data we must not advance because in this way
       // the VI will be desynchronized. So, We are waiting until the FIFO finish and
       // while we process only the events required by the FIFO.
+      // STV_GC_ESPERA_x (instrumento): tiempo de esta espera y cuantas pasan de 100 us.
+      const auto stv_t0 = std::chrono::steady_clock::now();
       m_system.GetFifo().FlushGpu();
+      const u32 stv_us = static_cast<u32>(
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - stv_t0).count());
+      g_stv_espera_us.fetch_add(stv_us, std::memory_order_relaxed);
+      if (stv_us > 100)
+        g_stv_esperas_largas.fetch_add(1, std::memory_order_relaxed);
       g_stv_esperas.fetch_add(1, std::memory_order_relaxed);
     }
   }
