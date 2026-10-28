@@ -76,6 +76,10 @@ public:
   // Also invokes callbacks for completion.
   void WaitForFenceCounter(u64 fence_counter);
 
+  // STV_GC_EFBASYNC_x: sin bloquear, true si el trabajo del contador ya termino (si termino, hace la limpieza de
+  // WaitForFenceCounter, que entonces no espera).
+  bool StvFenceListo(u64 fence_counter);
+
   void SubmitCommandBuffer(bool submit_on_worker_thread, bool wait_for_completion,
                            bool advance_to_next_frame = false,
                            VkSwapchainKHR present_swap_chain = VK_NULL_HANDLE,

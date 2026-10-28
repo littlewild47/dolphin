@@ -107,6 +107,7 @@ public:
   bool Map() override;
   void Unmap() override;
   void Flush() override;
+  bool StvListoSinEsperar() override;  // STV_GC_EFBASYNC_x
 
   static std::unique_ptr<VKStagingTexture> Create(StagingTextureType type,
                                                   const TextureConfig& config);

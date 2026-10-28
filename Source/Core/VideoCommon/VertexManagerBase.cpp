@@ -936,6 +936,7 @@ void VertexManagerBase::OnConfigChange()
 // STV_GC_KICK_x / STV_GC_EFBCUENTA_x (exploracion): debug.stv.gc.kick = N dibujos entre envios del bufer de comandos
 // (0 = como Dolphin); g_stv_dibujo cuenta los dibujos del cuadro (la cronologia de las copias del EFB la usa).
 u32 g_stv_kick = 0;
+extern bool g_stv_efbasync;  // TextureCacheBase.cpp
 std::atomic<u32> g_stv_dibujo{0};
 void StvEfbFinCuadro();  // TextureCacheBase.cpp
 
@@ -943,6 +944,8 @@ void VertexManagerBase::OnDraw()
 {
   m_draw_counter++;
   g_stv_dibujo.store(m_draw_counter, std::memory_order_relaxed);
+  if (g_stv_efbasync && (m_draw_counter & 31) == 0)
+    g_texture_cache->StvSondearEnVuelo();  // STV_GC_EFBASYNC_x: escribir en la RAM las copias que ya terminaron
 
   if (g_stv_kick != 0 && m_allow_background_execution && (m_draw_counter % g_stv_kick) == 0)
   {
