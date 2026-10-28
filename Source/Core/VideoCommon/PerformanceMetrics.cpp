@@ -24,6 +24,13 @@
 #include "Core/CoreTiming.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
+#include "Common/CommonPaths.h"
+#include "Common/FileUtil.h"
+#include "Core/Core.h"
+#include "Core/HW/Memmap.h"
+#include "Core/PowerPC/PPCAnalyst.h"
+#include "Core/PowerPC/PPCSymbolDB.h"
+#include "Core/PowerPC/SignatureDB/SignatureDB.h"
 
 #ifdef __ANDROID__
 // STV_GC_METRICAS_v2: con debug.stv.gc.metricas=1, una linea por segundo en logcat (etiqueta STVGC) con los
@@ -509,6 +516,32 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
                             static_cast<unsigned long long>(ve - ve0),
                             Config::Get(Config::MAIN_STV_VILAZO) ? 1 : 0);
       ve0 = ve;
+    }
+    // STV_GC_SIMBOLOS_x (instrumento): debug.stv.gc.simbolos = <archivo>: busca las funciones del juego en MEM1, les pone
+    // nombre con la base de firmas de Dolphin (Sys/totaldb.dsy, las bibliotecas de Nintendo) y guarda el mapa de
+    // simbolos en <archivo> (como "Generate Symbols From Signature Database" de la version de escritorio). Corre en el
+    // hilo de CPU, una vez por valor.
+    {
+      char sm[PROP_VALUE_MAX] = {};
+      static std::string stv_sm_prev;
+      if (__system_property_get("debug.stv.gc.simbolos", sm) > 0 && sm[0] == '/' && stv_sm_prev != sm)
+      {
+        stv_sm_prev = sm;
+        auto& system = Core::System::GetInstance();
+        auto& db = system.GetPPCSymbolDB();
+        const Core::CPUThreadGuard guard(system);
+        PPCAnalyst::FindFunctions(guard, Memory::MEM1_BASE_ADDR,
+                                  Memory::MEM1_BASE_ADDR + system.GetMemory().GetRamSizeReal(), &db);
+        SignatureDB sdb(SignatureDB::HandlerType::DSY);
+        const bool cargo = sdb.Load(File::GetSysDirectory() + TOTALDB);
+        if (cargo)
+          sdb.Apply(guard, &db);
+        const bool ok = db.SaveSymbolMap(sm);
+        size_t nf = 0;
+        db.ForEachSymbol([&nf](const Common::Symbol&) { nf++; });
+        __android_log_print(ANDROID_LOG_INFO, "STVGC", "simbolos: %zu funciones, firmas=%d, guardado=%d en %s", nf,
+                            cargo ? 1 : 0, ok ? 1 : 0, sm);
+      }
     }
     // STV_GC_EFBASYNC_v1: debug.stv.gc.efbasync = 0|1 pisa [Core] STVEfbAsync. Con las metricas, una linea por segundo
     // con las copias a RAM, las vaciadas sin esperar (en vuelo), las sincronicas, las forzadas y la espera.
