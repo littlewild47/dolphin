@@ -4,6 +4,10 @@
 #pragma once
 
 #include <cstddef>
+#ifdef __ANDROID__
+#include <sys/mman.h>
+#include <sys/system_properties.h>
+#endif
 #include <vector>
 
 #include "Common/Assert.h"
@@ -64,6 +68,29 @@ public:
   // uninitialized, it just breaks into the debugger.
   void ClearCodeSpace()
   {
+#ifdef __ANDROID__
+    // STV_GC_SINVENENO_x: PoisonMemory escribia BRK en toda la region (256 MB en JitArm64, en cada ClearCache y al
+    // iniciar): 256 MB de paginas sucias de golpe en una consola de 1 GB, que el sistema pagaba sacando de la RAM la
+    // cache de archivos y la memoria del juego. Ahora las paginas vuelven al sistema (MADV_DONTNEED): se leen como
+    // ceros, y 0x00000000 es UDF en ARM64 (salta igual que BRK si algo ejecuta ahi). debug.stv.gc.veneno=1 = Dolphin.
+    {
+      char v[PROP_VALUE_MAX] = {};
+      const bool veneno = __system_property_get("debug.stv.gc.veneno", v) > 0 && v[0] == '1';
+      const uintptr_t pag = 4096;
+      const uintptr_t ini = (reinterpret_cast<uintptr_t>(region) + pag - 1) & ~(pag - 1);
+      const uintptr_t fin = (reinterpret_cast<uintptr_t>(region) + region_size) & ~(pag - 1);
+      if (!veneno && region && fin > ini + (1 << 20))
+      {
+        // los bordes que no son pagina entera, con BRK como antes
+        if (ini > reinterpret_cast<uintptr_t>(region) || fin < reinterpret_cast<uintptr_t>(region) + region_size)
+          PoisonMemory();
+        else
+          madvise(reinterpret_cast<void*>(ini), fin - ini, MADV_DONTNEED);
+        ResetCodePtr();
+        return;
+      }
+    }
+#endif
     PoisonMemory();
     ResetCodePtr();
   }
