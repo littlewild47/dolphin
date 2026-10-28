@@ -27,6 +27,8 @@ struct EventType;
 
 namespace Fifo
 {
+extern std::atomic<u32> g_stv_fifo_lote_n;  // STV_GC_FIFOLOTE_x
+
 // Used for diagnostics.
 enum class SyncGPUReason
 {

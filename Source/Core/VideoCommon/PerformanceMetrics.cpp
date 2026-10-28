@@ -25,6 +25,7 @@
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/SystemTimers.h"
 #include "Core/HLE/HLE.h"
+#include "VideoCommon/Fifo.h"
 #include "VideoBackends/Vulkan/VKGrabador.h"
 #include "Core/HLE/HLE_STV.h"
 
@@ -524,6 +525,12 @@ void PerformanceMetrics::CountPerformanceMarker(s64 core_ticks, u32 ticks_per_se
       char gg[PROP_VALUE_MAX] = {};
       if (__system_property_get("debug.stv.gc.grabgiro", gg) > 0 && gg[0] >= '0' && gg[0] <= '9')
         Vulkan::Grabador::g_giro.store(std::clamp(atoi(gg), 0, 1000000), std::memory_order_relaxed);
+    }
+    // STV_GC_FIFOLOTE_x: debug.stv.gc.fifolote = pedazos por publicacion (1 = Dolphin)
+    {
+      char fl[PROP_VALUE_MAX] = {};
+      if (__system_property_get("debug.stv.gc.fifolote", fl) > 0 && fl[0] >= '1' && fl[0] <= '9')
+        Fifo::g_stv_fifo_lote_n.store(std::clamp(atoi(fl), 1, 64), std::memory_order_relaxed);
     }
     // STV_GC_XFBRAPIDO_x: debug.stv.gc.xfbrapido = 0|1
     {

@@ -3,6 +3,8 @@
 
 #include "VideoCommon/Fifo.h"
 
+#include <algorithm>
+
 #include <atomic>
 #include <cstring>
 
@@ -34,6 +36,9 @@
 
 namespace Fifo
 {
+// STV_GC_FIFOLOTE_x: pedazos de 32 bytes por publicacion (1 = Dolphin); debug.stv.gc.fifolote (PerformanceMetrics).
+std::atomic<u32> g_stv_fifo_lote_n{1};
+
 static constexpr int GPU_TIME_SLOT_SIZE = 1000;
 
 FifoManager::FifoManager(Core::System& system) : m_system{system}
@@ -316,10 +321,24 @@ void FifoManager::RunGpuLoop()
           auto& fifo = command_processor.GetFifo();
           command_processor.SetCPStatusFromGPU();
 
+          // STV_GC_FIFOLOTE_x: el decodificado sigue de a 32 bytes (y los chequeos de interrupcion y breakpoint, en
+          // cada pedazo), pero el descuento de CPReadWriteDistance (atomico seq_cst compartido con el hilo de CPU), el
+          // estado del CP y los pedidos asincronos se publican cada g_stv_fifo_lote pedazos y siempre al salir.
+          const u32 stv_lote = std::max<u32>(1, g_stv_fifo_lote_n.load(std::memory_order_relaxed));
+          u32 stv_pend = 0;  // pedazos consumidos sin publicar
+          auto stv_publicar = [&] {
+            if (stv_pend == 0)
+              return;
+            fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE * stv_pend, std::memory_order_seq_cst);
+            stv_pend = 0;
+            command_processor.SetCPStatusFromGPU();
+            AsyncRequests::GetInstance()->PullEvents();
+          };
           // check if we are able to run this buffer
           while (!command_processor.IsInterruptWaiting() &&
                  fifo.bFF_GPReadEnable.load(std::memory_order_relaxed) &&
-                 fifo.CPReadWriteDistance.load(std::memory_order_relaxed) &&
+                 fifo.CPReadWriteDistance.load(std::memory_order_relaxed) !=
+                     GPFifo::GATHER_PIPE_SIZE * stv_pend &&
                  !AtBreakpoint(m_system))
           {
             if (m_config_sync_gpu && m_sync_ticks.load() < m_config_sync_gpu_min_distance)
@@ -336,7 +355,7 @@ void FifoManager::RunGpuLoop()
 
             const s32 distance =
                 static_cast<s32>(fifo.CPReadWriteDistance.load(std::memory_order_relaxed)) -
-                GPFifo::GATHER_PIPE_SIZE;
+                static_cast<s32>(GPFifo::GATHER_PIPE_SIZE * (stv_pend + 1));
             ASSERT_MSG(COMMANDPROCESSOR, distance >= 0,
                        "Negative fifo.CPReadWriteDistance = {} in FIFO Loop !\nThat can produce "
                        "instability in the game. Please report it.",
@@ -347,14 +366,20 @@ void FifoManager::RunGpuLoop()
                 DataReader(m_video_buffer_read_ptr, write_ptr), &cyclesExecuted);
 
             fifo.CPReadPointer.store(readPtr, std::memory_order_relaxed);
-            fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE, std::memory_order_seq_cst);
+            stv_pend++;
             if ((write_ptr - m_video_buffer_read_ptr) == 0)
             {
               fifo.SafeCPReadPointer.store(fifo.CPReadPointer.load(std::memory_order_relaxed),
                                            std::memory_order_relaxed);
             }
 
-            command_processor.SetCPStatusFromGPU();
+            if (stv_pend >= stv_lote)
+            {
+              fifo.CPReadWriteDistance.fetch_sub(GPFifo::GATHER_PIPE_SIZE * stv_pend,
+                                                 std::memory_order_seq_cst);
+              stv_pend = 0;
+              command_processor.SetCPStatusFromGPU();
+            }
 
             if (m_config_sync_gpu)
             {
@@ -371,8 +396,10 @@ void FifoManager::RunGpuLoop()
             // If we don't, s_swapRequested or s_efbAccessRequested won't be set to false
             // leading the CPU thread to wait in Video_OutputXFB or Video_AccessEFB thus slowing
             // things down.
-            AsyncRequests::GetInstance()->PullEvents();
+            if (stv_pend == 0)  // STV_GC_FIFOLOTE_x: con la publicacion del lote (con lote 1, en cada pedazo)
+              AsyncRequests::GetInstance()->PullEvents();
           }
+          stv_publicar();  // STV_GC_FIFOLOTE_x: lo que quedo del lote, antes de soltar el lazo
 
           // fast skip remaining GPU time if fifo is empty
           if (m_sync_ticks.load() > 0)
