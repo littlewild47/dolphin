@@ -25,6 +25,10 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 using namespace Arm64Gen;
 
 void JitArm64::SafeLoadToReg(u32 dest, s32 addr, s32 offsetReg, u32 flags, s32 offset, bool update)
@@ -579,6 +583,23 @@ void JitArm64::lmw(UGeckoInstruction inst)
   }
 
   BitSet32 gprs_to_undirty = ~js.op->gprWillBeWritten & BitSet32(0xFFFFFFFFU << d);
+  // STV_GC_LMW_v1: en Dolphin un registro descartable siempre se va a escribir, asi que nunca esta en gprs_to_undirty.
+  // Con los volatiles muertos de STV (r0, r5-r12 descartables antes del blr final, sin escribirse) eso deja de valer:
+  // abajo se descarta el registro i y en la vuelta siguiente se guarda el par {i-1, i} -> "Attempted to flush
+  // discarded register" (Resident Evil 4, lmw r2,8(r1) en 0x80193400, antes del addi r1 / blr). Un registro descartado
+  // no se guarda: se saca de los que se limpian.
+  if (gprs_to_undirty & gprs_to_discard)
+  {
+    gprs_to_undirty &= ~gprs_to_discard;
+#ifdef __ANDROID__
+    static int stv_avisos = 0;
+    if (stv_avisos < 8)
+    {
+      stv_avisos++;
+      __android_log_print(ANDROID_LOG_INFO, "STVGC", "jit: lmw %08x r%u sin limpiar descartados", js.compilerPC, d);
+    }
+#endif
+  }
 
   BitSet32 gprs_to_flush = ~(js.op->gprWillBeWritten | js.op->gprWillBeRead);
   if (a_is_addr_base_reg)
